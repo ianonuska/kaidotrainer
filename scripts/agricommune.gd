@@ -4611,8 +4611,12 @@ func draw_ground_tiles():
 func draw_dirt_paths():
 	if tex_tiled_dirt_wide:
 		# Use Sprout Lands Tilled_Dirt_Wide.png for paths
-		# Standard tileset layout with edges and corners
+		# Based on bitmask reference: 3x3 grid starts at column 1 (x=16)
+		# Layout: corners at (16,0), (48,0), (16,32), (48,32)
+		#         edges at (32,0), (16,16), (48,16), (32,32)
+		#         center fill at (32,16)
 		var tile_size = 16
+		var base_x = 16  # Tileset 3x3 grid starts at x=16
 
 		# Define path regions
 		var v_path_left = 200
@@ -4651,7 +4655,7 @@ func draw_dirt_paths():
 				else:
 					tile_x = 1; tile_y = 1
 
-				var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
+				var src = Rect2(base_x + tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
 				var dest = Rect2(tx, ty, tile_size, tile_size)
 				draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
 		
@@ -4660,32 +4664,8 @@ func draw_dirt_paths():
 			for tx in range(0, 480, tile_size):
 				# Skip the intersection area (already drawn by vertical path)
 				if tx >= v_path_left and tx < v_path_right:
-					# Draw intersection tiles with special handling
-					var is_top_of_h = (ty == h_path_top)
-					var is_bottom_of_h = (ty == h_path_bottom - tile_size)
-
-					var tile_x = 1  # Center
-					var tile_y = 1
-
-					# At intersection, we need to handle the T-junctions
-					if tx == v_path_left:
-						if is_top_of_h:
-							tile_x = 3; tile_y = 0
-						elif is_bottom_of_h:
-							tile_x = 3; tile_y = 2
-						else:
-							tile_x = 1; tile_y = 1
-					elif tx == v_path_right - tile_size:
-						if is_top_of_h:
-							tile_x = 3; tile_y = 1
-						elif is_bottom_of_h:
-							tile_x = 3; tile_y = 2
-						else:
-							tile_x = 1; tile_y = 1
-					else:
-						tile_x = 1; tile_y = 1
-
-					var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
+					# Draw center fill for intersection
+					var src = Rect2(base_x + 1 * tile_size, 1 * tile_size, tile_size, tile_size)
 					var dest = Rect2(tx, ty, tile_size, tile_size)
 					draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
 					continue
@@ -4735,7 +4715,7 @@ func draw_dirt_paths():
 				else:
 					tile_x = 1; tile_y = 1
 
-				var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
+				var src = Rect2(base_x + tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
 				var dest = Rect2(tx, ty, tile_size, tile_size)
 				draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
 
