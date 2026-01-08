@@ -1081,12 +1081,12 @@ func load_sprites():
 		tex_old_family_photo = load(SPROUT_PATH + "Characters/old_family_photo.png")
 	
 	# Load grass tileset
-	if ResourceLoader.exists(SPROUT_PATH + "tilesets/grass_tileset.png"):
-		tex_grass_tileset = load(SPROUT_PATH + "tilesets/grass_tileset.png")
-	if ResourceLoader.exists(SPROUT_PATH + "tilesets/grass_tile.png"):
-		tex_grass_tile = load(SPROUT_PATH + "tilesets/grass_tile.png")
-	if ResourceLoader.exists(SPROUT_PATH + "tilesets/grass_tile_dark.png"):
-		tex_grass_tile_dark = load(SPROUT_PATH + "tilesets/grass_tile_dark.png")
+	if ResourceLoader.exists(TILESET_PATH + "grass_tileset.png"):
+		tex_grass_tileset = load(TILESET_PATH + "grass_tileset.png")
+	if ResourceLoader.exists(TILESET_PATH + "grass_tile.png"):
+		tex_grass_tile = load(TILESET_PATH + "grass_tile.png")
+	if ResourceLoader.exists(TILESET_PATH + "grass_tile_dark.png"):
+		tex_grass_tile_dark = load(TILESET_PATH + "grass_tile_dark.png")
 	
 	# A1: Add Pig to animals
 	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Pig/SpriteSheet.png"):
@@ -4594,27 +4594,13 @@ func draw_road_sign_vertical(x: float, y: float, text: String, arrow_up: bool):
 	draw_string(ThemeDB.fallback_font, Vector2(x + 1, y + 10), arrow_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.15, 0.1))
 
 func draw_ground_tiles():
-	# Use Sprout Lands Grass.png tileset (16x16 tiles)
-	# Solid grass fill tiles are in the center area of the tileset
-	if tex_grass:
-		var tile_size = 16
-		# Solid green grass fill tiles from center of tileset
-		var grass_tiles = [
-			Rect2(16, 16, 16, 16),   # Center grass 1
-			Rect2(32, 16, 16, 16),   # Center grass 2
-			Rect2(48, 16, 16, 16),   # Center grass 3
-			Rect2(16, 32, 16, 16),   # Center grass 4
-			Rect2(32, 32, 16, 16),   # Center grass 5
-			Rect2(48, 32, 16, 16),   # Center grass 6
-		]
-
-		for x in range(0, 480, tile_size):
-			for y in range(0, 320, tile_size):
-				# Pick tile variation based on position for consistent look
-				var tile_idx = int(abs(x * 3 + y * 7)) % grass_tiles.size()
-				var src = grass_tiles[tile_idx]
-				var dest = Rect2(x, y, tile_size, tile_size)
-				draw_texture_rect_region(tex_grass, dest, src)
+	# Use Sprout Lands grass_tile.png - simple solid grass texture
+	if tex_grass_tile:
+		var tile_w = tex_grass_tile.get_width()
+		var tile_h = tex_grass_tile.get_height()
+		for x in range(0, 480, tile_w):
+			for y in range(0, 320, tile_h):
+				draw_texture(tex_grass_tile, Vector2(x, y))
 	else:
 		# Fallback to colored rectangles
 		var grass_mid = Color(0.55, 0.85, 0.5)
@@ -4623,15 +4609,10 @@ func draw_ground_tiles():
 				draw_rect(Rect2(x, y, 16, 16), grass_mid)
 
 func draw_dirt_paths():
-	if tex_ninja_field:
-		# Use Ninja Adventure TilesetFloor.png for paths
-		# Brown/orange path tiles from rows 2-3 (y=32-64) - grass with dirt edges
-		# Tile positions: edges and corners for proper path borders
+	if tex_tiled_dirt_wide:
+		# Use Sprout Lands Tilled_Dirt_Wide.png for paths
+		# Standard tileset layout with edges and corners
 		var tile_size = 16
-
-		# Tile offsets in the tileset (brown dirt section starts at y=32)
-		var path_base_x = 48  # Column offset for the path tiles
-		var path_base_y = 32  # Row offset for brown/green section
 
 		# Define path regions
 		var v_path_left = 200
@@ -4670,9 +4651,9 @@ func draw_dirt_paths():
 				else:
 					tile_x = 1; tile_y = 1
 
-				var src = Rect2(path_base_x + tile_x * tile_size, path_base_y + tile_y * tile_size, tile_size, tile_size)
+				var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
 				var dest = Rect2(tx, ty, tile_size, tile_size)
-				draw_texture_rect_region(tex_ninja_field, dest, src)
+				draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
 		
 		# Draw horizontal path (east-west)
 		for ty in range(h_path_top, h_path_bottom, tile_size):
@@ -4704,9 +4685,9 @@ func draw_dirt_paths():
 					else:
 						tile_x = 1; tile_y = 1
 
-					var src = Rect2(path_base_x + tile_x * tile_size, path_base_y + tile_y * tile_size, tile_size, tile_size)
+					var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
 					var dest = Rect2(tx, ty, tile_size, tile_size)
-					draw_texture_rect_region(tex_ninja_field, dest, src)
+					draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
 					continue
 
 				var tile_x = 1  # Default center
@@ -4754,9 +4735,9 @@ func draw_dirt_paths():
 				else:
 					tile_x = 1; tile_y = 1
 
-				var src = Rect2(path_base_x + tile_x * tile_size, path_base_y + tile_y * tile_size, tile_size, tile_size)
+				var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
 				var dest = Rect2(tx, ty, tile_size, tile_size)
-				draw_texture_rect_region(tex_ninja_field, dest, src)
+				draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
 
 # DEPRECATED: This function is no longer used. 
 # All buildings/trees are now drawn via draw_entities_y_sorted() for proper layering.
