@@ -4594,18 +4594,18 @@ func draw_road_sign_vertical(x: float, y: float, text: String, arrow_up: bool):
 	draw_string(ThemeDB.fallback_font, Vector2(x + 1, y + 10), arrow_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.15, 0.1))
 
 func draw_ground_tiles():
-	# Use Ninja Adventure TilesetFloor.png (384x336, 16x16 tiles)
-	# Light green grass tiles are in rows 4-5 (y=64-96)
-	if tex_ninja_field:
+	# Use Sprout Lands Grass.png tileset (16x16 tiles)
+	# Solid grass fill tiles are in the center area of the tileset
+	if tex_grass:
 		var tile_size = 16
-		# Light green grass fill tiles from rows 4-5 (y=64-96)
+		# Solid green grass fill tiles from center of tileset
 		var grass_tiles = [
-			Rect2(64, 80, 16, 16),   # Light grass fill 1
-			Rect2(80, 80, 16, 16),   # Light grass fill 2
-			Rect2(64, 96, 16, 16),   # Light grass fill 3
-			Rect2(80, 96, 16, 16),   # Light grass fill 4
-			Rect2(192, 80, 16, 16),  # Light grass fill 5 (right section)
-			Rect2(208, 80, 16, 16),  # Light grass fill 6
+			Rect2(16, 16, 16, 16),   # Center grass 1
+			Rect2(32, 16, 16, 16),   # Center grass 2
+			Rect2(48, 16, 16, 16),   # Center grass 3
+			Rect2(16, 32, 16, 16),   # Center grass 4
+			Rect2(32, 32, 16, 16),   # Center grass 5
+			Rect2(48, 32, 16, 16),   # Center grass 6
 		]
 
 		for x in range(0, 480, tile_size):
@@ -4614,7 +4614,7 @@ func draw_ground_tiles():
 				var tile_idx = int(abs(x * 3 + y * 7)) % grass_tiles.size()
 				var src = grass_tiles[tile_idx]
 				var dest = Rect2(x, y, tile_size, tile_size)
-				draw_texture_rect_region(tex_ninja_field, dest, src)
+				draw_texture_rect_region(tex_grass, dest, src)
 	else:
 		# Fallback to colored rectangles
 		var grass_mid = Color(0.55, 0.85, 0.5)
