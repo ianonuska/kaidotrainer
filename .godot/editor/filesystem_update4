@@ -1,0 +1,9 @@
+res://scenes/agricommune.tscn
+res://scripts/agricommune.gd
+res://DialogueData.gd
+res://AreaDrawing.gd
+res://UIDrawing.gd
+res://CombatSystem.gd
+res://StampedeSystem.gd
+res://InteriorScenes.gd
+res://README.md
