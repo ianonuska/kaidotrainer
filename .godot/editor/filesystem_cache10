@@ -1,12 +1,20 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1767896183
+::res://::1767913590
 AreaDrawing.gd::GDScript::8377337878883713143::1767848004::0::1::::<>RefCounted<><>0<>0<><>::
-CombatSystem.gd::GDScript::3994250691615151869::1767844541::0::1::::<>RefCounted<><>0<>0<><>::
+CLAUDE.md::TextFile::-1::1767908736::0::1::::<><><>0<>0<><>::
+CombatSystem.gd::GDScript::3994250691615151869::1767912750::0::1::::<>RefCounted<><>0<>0<><>::
 DialogueData.gd::GDScript::7384739827257158323::1767896183::0::1::::<>RefCounted<><>0<>0<><>::
 InteriorScenes.gd::GDScript::8683251563683665242::1767823446::0::1::::<>RefCounted<><>0<>0<><>::
-README.md::TextFile::-1::1767329886::0::1::::<><><>0<>0<><>::
-StampedeSystem.gd::GDScript::3861536790835778206::1767725595::0::1::::<>RefCounted<><>0<>0<><>::
+README.md::TextFile::-1::1767904760::0::1::::<><><>0<>0<><>::
+StampedeSystem.gd::GDScript::3861536790835778206::1767913533::0::1::::<>RefCounted<><>0<>0<><>::
 UIDrawing.gd::GDScript::3097777891614230131::1767823468::0::1::::<>RefCounted<><>0<>0<><>::
+::res://A_small_teal_turquoise_robot_character_with_a_roun/::1767913571
+metadata.json::JSON::-1::1767931554::0::1::::<><><>0<>0<><>::
+::res://A_small_teal_turquoise_robot_character_with_a_roun/rotations/::1767913560
+east.png::CompressedTexture2D::5555678956718051071::1767931554::1767913648::1::::<><><>0<>0<>a43d13c844cc06d4eca21273d458e7a2<>res://.godot/imported/east.png-d938d800b92adaa0ef310d8459b8ab86.ctex::
+north.png::CompressedTexture2D::3863220421897008163::1767931554::1767913648::1::::<><><>0<>0<>a7fb76d52c94c86f83803c72bd9ef3cc<>res://.godot/imported/north.png-1f63f307ead0bb33b3589711b017393f.ctex::
+south.png::CompressedTexture2D::3835088103722116725::1767931554::1767913648::1::::<><><>0<>0<>01a7679a5caf4eab8e6cfbf989528097<>res://.godot/imported/south.png-4fae7c25b92bcd21f0bcf996e79f1ee5.ctex::
+west.png::CompressedTexture2D::6127773018618018995::1767931554::1767913648::1::::<><><>0<>0<>d9b0a003aafa206f6e1d2ef7d17bf078<>res://.godot/imported/west.png-7b72459e3f79355afff616413bba6aa2.ctex::
 ::res://elderly_Japanese_farmer_grandmother_sprite_short_g/::1767844034
 metadata.json::JSON::-1::1767862010::0::1::::<><><>0<>0<><>::
 ::res://elderly_Japanese_farmer_grandmother_sprite_short_g/animations/::1767844034
@@ -2606,11 +2614,11 @@ east.png::CompressedTexture2D::5781045343705803673::1767840826::1767823431::1:::
 north.png::CompressedTexture2D::4374938790201512914::1767840826::1767823431::1::::<><><>0<>0<>ffe07916c00508cee81e27867697ad9e<>res://.godot/imported/north.png-bed1f6e23da666b9a94675b4787fda87.ctex::
 south.png::CompressedTexture2D::2765653575711965133::1767840826::1767823431::1::::<><><>0<>0<>7d83f8396a8f59612e145adc2112762f<>res://.godot/imported/south.png-fba4a0619173aeb8e662f96e10a12a28.ctex::
 west.png::CompressedTexture2D::4950548782970019020::1767840826::1767823431::1::::<><><>0<>0<>deb1021ea96d903ba90cd588da101f57<>res://.godot/imported/west.png-d84bf98c14c5095e3c9363c9f9ad78c4.ctex::
-::res://scenes/::1767897309
-agricommune.tscn::PackedScene::8789876156870967695::1767897309::0::1::::<><><>0<>0<><>::uid://c8op4ayef0hl3::::res://scripts/agricommune.gd
-::res://scripts/::1767897309
+::res://scenes/::1767906805
+agricommune.tscn::PackedScene::8789876156870967695::1767906805::0::1::::<><><>0<>0<><>::uid://c8op4ayef0hl3::::res://scripts/agricommune.gd
+::res://scripts/::1767913420
 agricommune copy-11000linesofcode.gd::GDScript::2362289233662191766::1767586891::0::1::::<>Node2D<><>0<>0<><>::
-agricommune.gd::GDScript::7118937076177567046::1767897309::0::1::::<>Node2D<><>0<>0<><>::
+agricommune.gd::GDScript::7118937076177567046::1767913420::0::1::::<>Node2D<><>0<>0<><>::
 AreaDrawing.gd::GDScript::1775356581325495835::1767596189::0::1::::<>RefCounted<><>0<>0<><>::
 ::res://Sprout Lands - Sprites - Basic pack/::1767845510
 read_me.txt::TextFile::-1::1719885670::0::1::::<><><>0<>0<><>::
@@ -2647,7 +2655,7 @@ kaido.png::CompressedTexture2D::5325581247562026372::1767332503::1767844722::1::
 kaido_new.png::CompressedTexture2D::5598118698872794320::1767334566::1767844722::1::::<><><>0<>0<>02c646a3e120c9dcab14d82135a77545<>res://.godot/imported/kaido_new.png-65001ea66204d92fc54e5fcfb293c031.ctex::
 kaido_portrait.png::CompressedTexture2D::6790108427017102137::1767332503::1767844722::1::::<><><>0<>0<>8197d3ce656f97f84e6075d24f982119<>res://.godot/imported/kaido_portrait.png-2dd028f56213eecbd079a75fbadc88ab.ctex::
 kaido_portrait_new.png::CompressedTexture2D::7168769023988301853::1767334566::1767844722::1::::<><><>0<>0<>303dd6ecc9654a5df96595652f864482<>res://.godot/imported/kaido_portrait_new.png-ca377b7729a6ce598aef12e79f0be955.ctex::
-::res://Sprout Lands - Sprites - Basic pack/Objects/::1767897689
+::res://Sprout Lands - Sprites - Basic pack/Objects/::1767907961
 Basic Furniture.png::CompressedTexture2D::2219762133518152186::1640172806::1767331885::1::::<><><>0<>0<>9d66ee4bb29373fccffb0d7bd7348976<>res://.godot/imported/Basic Furniture.png-9287f31470a1cb259edd4b33d3d8129e.ctex::
 Basic Grass Biom things 1.png::CompressedTexture2D::3256834717641219919::1641385164::1767331885::1::::<><><>0<>0<>e2311462a916bda9522192eb4a1a2838<>res://.godot/imported/Basic Grass Biom things 1.png-8814472e7ce84ee8299ea425ba2e5cd7.ctex::
 Basic Plants.png::CompressedTexture2D::5241068123040825045::1640170444::1767331885::1::::<><><>0<>0<>bff8212f8b4d88d5d0c756804fead689<>res://.godot/imported/Basic Plants.png-3a51ac930872a119228d0c6ef9491e17.ctex::
@@ -2666,6 +2674,7 @@ sewer.png::CompressedTexture2D::7420886245779781093::1767897662::1767897698::1::
 shed.png::CompressedTexture2D::1201457909858561928::1767846949::1767847026::1::::<><><>0<>0<>731b2c6495609c5fb446c64b4042ee73<>res://.godot/imported/shed.png-6fbca8e4be36cea9654a75aa15b85569.ctex::
 Simple Milk and grass item.png::CompressedTexture2D::4670636145591209710::1642922286::1767331885::1::::<><><>0<>0<>9a40051dc5dd680fbda32ccb4f50cc9f<>res://.godot/imported/Simple Milk and grass item.png-5ded40fbf17ea499edbaaf4378c6ffb1.ctex::
 Simple_Milk_and_grass_item.png::CompressedTexture2D::3588352572445037360::1642925886::1767331885::1::::<><><>0<>0<>4991f798855e2389366ea0053ff254d5<>res://.godot/imported/Simple_Milk_and_grass_item.png-2a7cfbf6f0a3dd0985a9e9e69e064915.ctex::
+tumbleweed.png::CompressedTexture2D::3068753498406243890::1767907871::1767907961::1::::<><><>0<>0<>732ade7e9c242a4593f5d5714413438c<>res://.godot/imported/tumbleweed.png-8fd35533b89410baadddea98f09f62c9.ctex::
 Wood Bridge.png::CompressedTexture2D::4619876660564152977::1642842030::1767331885::1::::<><><>0<>0<>0ed6f086c5f54b8945ab765e84651f91<>res://.godot/imported/Wood Bridge.png-47127563427b88151ccd90b1f78bf804.ctex::
 Wood_Bridge.png::CompressedTexture2D::706872571598244000::1642845630::1767331885::1::::<><><>0<>0<>4f2a4cdab75bbba0540b5a1b2cc26cb6<>res://.godot/imported/Wood_Bridge.png-6f5a627699b788220abf2a8fbbcf838e.ctex::
 ::res://Sprout Lands - Sprites - Basic pack/Schematics/::1767726671

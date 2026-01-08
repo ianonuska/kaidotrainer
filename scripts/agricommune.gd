@@ -154,11 +154,14 @@ var stampede_player_pos: Vector2 = Vector2(100, 220)
 var stampede_player_vel: Vector2 = Vector2.ZERO
 var stampede_player_y_vel: float = 0.0  # Vertical velocity for jump
 var stampede_player_grounded: bool = true
+var stampede_player_jump_start_y: float = 220.0  # Y position when jump started
 var stampede_player_hp: int = 3
 var stampede_player_max_hp: int = 3
 var stampede_player_state: String = "idle"  # idle, attacking, jumping, hit
 var stampede_player_state_timer: float = 0.0
 var stampede_player_facing_right: bool = true
+var stampede_player_is_walking: bool = false  # Track if player is moving horizontally
+var stampede_bounce_cooldown: float = 0.0  # Brief cooldown between bounces
 var stampede_wave: int = 0
 var stampede_animals: Array = []  # [{type, pos, vel, hp, hit_flash, defeated}]
 var stampede_spawn_timer: float = 0.0
@@ -207,6 +210,7 @@ var combat_player_state_timer: float = 0.0
 var combat_combo_count: int = 0
 var combat_combo_timer: float = 0.0
 var combat_player_facing_right: bool = true
+var combat_player_is_walking: bool = false  # Track if player is moving horizontally
 var combat_iframe_active: bool = false
 
 # Slash trail effect
@@ -270,7 +274,7 @@ var building_collisions: Array = [
 	Rect2(355, 255, 40, 42),    # Tunnel sign post area
 
 	# Irrigation system: control panel at (70, 210, 35, 30), pipes extending right
-	Rect2(70, 210, 35, 10),     # Irrigation control panel
+		 # Irrigation control panel
 	Rect2(105, 230, 42, 20),    # Horizontal pipe (thicker collision)
 	Rect2(140, 220, 12, 20),    # Vertical pipe (thicker collision)
 	# Crops area - drawn at (35, 200), 4x3 grid - collision matches actual position
@@ -571,6 +575,9 @@ var grandmother_pacing: bool = true  # Paces until first conversation
 var grandmother_pace_target: Vector2 = Vector2.ZERO
 var grandmother_pace_timer: float = 0.0
 var grandmother_frame: int = 0
+var grandmother_pause_timer: float = 0.0  # Pause at ends of pacing
+var grandmother_pace_speed: float = 30.0  # Variable speed
+var grandmother_pace_state: String = "walking"  # walking, pausing, looking
 
 # Player attack animation frames
 var tex_player_attack_south: Array[Texture2D] = []
@@ -612,6 +619,9 @@ var tex_ninja_cat: Texture2D
 var tex_ninja_dog: Texture2D
 var tex_ninja_cow: Texture2D
 var tex_ninja_chicken: Texture2D
+var tex_ninja_chicken_black: Texture2D
+var tex_ninja_chicken_brown: Texture2D
+var tex_ninja_chicken_white: Texture2D
 var tex_ninja_horse: Texture2D
 var tex_ninja_donkey: Texture2D
 var tex_ninja_pig: Texture2D
@@ -645,6 +655,7 @@ var tex_old_family_photo: Texture2D
 var tex_grass_tileset: Texture2D
 var tex_grass_tile: Texture2D
 var tex_grass_tile_dark: Texture2D
+var tex_ninja_field: Texture2D  # Ninja Adventure TilesetField.png for ground tiles
 var tex_ninja_oldman: Texture2D
 var tex_ninja_oldman2: Texture2D
 var tex_ninja_princess: Texture2D
@@ -652,6 +663,10 @@ var tex_ninja_noble: Texture2D
 
 # Roaming animals data structure
 var roaming_animals: Array = []
+
+# Tumbleweeds
+var tex_tumbleweed: Texture2D
+var tumbleweeds: Array = []
 
 # Asset paths
 const SPROUT_PATH = "res://Sprout Lands - Sprites - Basic pack/"
@@ -867,25 +882,24 @@ func load_sprites():
 	if ResourceLoader.exists(MYSTIC_PATH + "tilesets/grass.png"):
 		tex_grass = load(MYSTIC_PATH + "tilesets/grass.png")
 	
-	# Load Kaido sprite - prioritize the new drawn version
+	# Load Kaido sprite - prioritize the drawn version
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/kaido_sprite_drawn.png"):
 		tex_kaido = load(SPROUT_PATH + "Characters/kaido_sprite_drawn.png")
 	elif ResourceLoader.exists(SPROUT_PATH + "Characters/kaido_small.png"):
 		tex_kaido = load(SPROUT_PATH + "Characters/kaido_small.png")
 	elif ResourceLoader.exists(SPROUT_PATH + "Characters/kaido.png"):
 		tex_kaido = load(SPROUT_PATH + "Characters/kaido.png")
-	
+
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/grandmother.png"):
 		tex_grandmother = load(SPROUT_PATH + "Characters/grandmother.png")
-	
-	# Load Kaido portrait - check for drawn portrait first
+
+	# Load Kaido portrait
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/kaido_portrait_drawn.png"):
 		tex_kaido_portrait = load(SPROUT_PATH + "Characters/kaido_portrait_drawn.png")
 	elif ResourceLoader.exists(SPROUT_PATH + "Characters/kaido_portrait_small.png"):
 		tex_kaido_portrait = load(SPROUT_PATH + "Characters/kaido_portrait_small.png")
 	elif ResourceLoader.exists(SPROUT_PATH + "Characters/kaido_portrait.png"):
 		tex_kaido_portrait = load(SPROUT_PATH + "Characters/kaido_portrait.png")
-	# Don't fall back to full sprite for portrait - let draw code handle it
 	
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/grandmother_portrait.png"):
 		tex_grandmother_portrait = load(SPROUT_PATH + "Characters/grandmother_portrait.png")
@@ -905,6 +919,10 @@ func load_sprites():
 			break
 	
 	# Load tileset textures
+	# Load Ninja Adventure TilesetFloor for ground (384x336, 16x16 tiles)
+	var ninja_tileset_path = "res://Ninja Adventure - Asset Pack/Backgrounds/Tilesets/TilesetFloor.png"
+	if ResourceLoader.exists(ninja_tileset_path):
+		tex_ninja_field = load(ninja_tileset_path)
 	if ResourceLoader.exists(TILESET_PATH + "Grass.png"):
 		tex_grass = load(TILESET_PATH + "Grass.png")
 	if ResourceLoader.exists(TILESET_PATH + "Tilled_Dirt.png"):
@@ -965,7 +983,9 @@ func load_sprites():
 		tex_gadget_light_sensor = load(OBJECTS_PATH + "light_sensor.png")
 	if ResourceLoader.exists(OBJECTS_PATH + "buzzer.png"):
 		tex_gadget_buzzer = load(OBJECTS_PATH + "buzzer.png")
-	
+	if ResourceLoader.exists(OBJECTS_PATH + "tumbleweed.png"):
+		tex_tumbleweed = load(OBJECTS_PATH + "tumbleweed.png")
+
 	# Load Ninja Adventure animals
 	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Cat/SpriteSheet.png"):
 		tex_ninja_cat = load(NINJA_ANIMALS_PATH + "Cat/SpriteSheet.png")
@@ -975,6 +995,12 @@ func load_sprites():
 		tex_ninja_cow = load(NINJA_ANIMALS_PATH + "Cow/SpriteSheet.png")
 	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Chicken/SpriteSheet.png"):
 		tex_ninja_chicken = load(NINJA_ANIMALS_PATH + "Chicken/SpriteSheet.png")
+	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Chicken/SpriteSheetBlack.png"):
+		tex_ninja_chicken_black = load(NINJA_ANIMALS_PATH + "Chicken/SpriteSheetBlack.png")
+	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Chicken/SpriteSheetBrown.png"):
+		tex_ninja_chicken_brown = load(NINJA_ANIMALS_PATH + "Chicken/SpriteSheetBrown.png")
+	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Chicken/SpriteSheetWhite.png"):
+		tex_ninja_chicken_white = load(NINJA_ANIMALS_PATH + "Chicken/SpriteSheetWhite.png")
 	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Horse/SpriteSheet.png"):
 		tex_ninja_horse = load(NINJA_ANIMALS_PATH + "Horse/SpriteSheet.png")
 	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Donkey/SpriteSheet.png"):
@@ -1082,6 +1108,7 @@ func load_sprites():
 	
 	# Initialize roaming animals for each area
 	init_roaming_animals()
+	init_tumbleweeds()
 
 func load_player_animations():
 	# Load walk animations (6 frames each direction)
@@ -1196,28 +1223,59 @@ func update_grandmother(delta: float):
 	if grandmother_pacing and quest_stage == 0 and not in_dialogue:
 		# Initialize pacing target
 		if grandmother_pace_target == Vector2.ZERO:
-			grandmother_pace_target = Vector2(400, 120)  # Start going right
-		
-		# Move toward pace target
-		var dist_to_target = grandmother_pos.distance_to(grandmother_pace_target)
-		if dist_to_target > 8:
-			var dir = (grandmother_pace_target - grandmother_pos).normalized()
-			grandmother_pos += dir * 30 * delta  # Pacing speed
-			grandmother_is_walking = true
-			
-			# Update facing based on movement direction
-			if dir.x > 0.1:
-				grandmother_facing = "right"
-			elif dir.x < -0.1:
-				grandmother_facing = "left"
-		else:
-			# Reached target, switch to other end with a small pause
-			grandmother_is_walking = false
-			# Toggle between left and right targets
-			if grandmother_pace_target.x > 350:
-				grandmother_pace_target = Vector2(280, 120)  # Go left
-			else:
-				grandmother_pace_target = Vector2(400, 120)  # Go right
+			grandmother_pace_target = Vector2(400 + randf_range(-10, 10), 120 + randf_range(-5, 5))
+			grandmother_pace_state = "walking"
+
+		# State machine for natural pacing
+		match grandmother_pace_state:
+			"pausing":
+				# Stand still for a moment at each end
+				grandmother_pause_timer -= delta
+				grandmother_is_walking = false
+				if grandmother_pause_timer <= 0:
+					# Randomly decide to look around or start walking
+					if randf() < 0.3:
+						grandmother_pace_state = "looking"
+						grandmother_pause_timer = randf_range(0.5, 1.2)
+						# Look in a random direction
+						grandmother_facing = ["up", "down", "left", "right"][randi() % 4]
+					else:
+						grandmother_pace_state = "walking"
+						grandmother_pace_speed = randf_range(22, 35)
+
+			"looking":
+				# Looking around before walking
+				grandmother_pause_timer -= delta
+				grandmother_is_walking = false
+				if grandmother_pause_timer <= 0:
+					grandmother_pace_state = "walking"
+					grandmother_pace_speed = randf_range(22, 35)
+
+			"walking":
+				var dist_to_target = grandmother_pos.distance_to(grandmother_pace_target)
+				if dist_to_target > 8:
+					var dir = (grandmother_pace_target - grandmother_pos).normalized()
+					# Ease speed - slower near endpoints
+					var speed_mult = min(1.0, dist_to_target / 40.0)
+					speed_mult = max(0.4, speed_mult)
+					grandmother_pos += dir * grandmother_pace_speed * speed_mult * delta
+					grandmother_is_walking = true
+
+					# Update facing based on movement direction
+					if dir.x > 0.1:
+						grandmother_facing = "right"
+					elif dir.x < -0.1:
+						grandmother_facing = "left"
+				else:
+					# Reached target, pause before turning
+					grandmother_pace_state = "pausing"
+					grandmother_pause_timer = randf_range(0.8, 2.0)
+					grandmother_is_walking = false
+					# Set new target with slight randomization
+					if grandmother_pace_target.x > 350:
+						grandmother_pace_target = Vector2(280 + randf_range(-15, 15), 120 + randf_range(-8, 8))
+					else:
+						grandmother_pace_target = Vector2(400 + randf_range(-15, 15), 120 + randf_range(-8, 8))
 		return
 	
 	# Quest stage 7: Grandmother leads player to irrigation
@@ -1247,14 +1305,7 @@ func update_grandmother(delta: float):
 
 func init_roaming_animals():
 	roaming_animals.clear()
-	
-	# A1: Classic Farm animals
-	roaming_animals.append({"area": "farm", "type": "cat", "pos": Vector2(80, 180), "target": Vector2(80, 180), "speed": 15.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "farm", "type": "dog", "pos": Vector2(350, 120), "target": Vector2(350, 120), "speed": 18.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "farm", "type": "chicken", "pos": Vector2(320, 250), "target": Vector2(320, 250), "speed": 6.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "farm", "type": "cow", "pos": Vector2(400, 70), "target": Vector2(400, 70), "speed": 10.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "farm", "type": "pig", "pos": Vector2(100, 120), "target": Vector2(100, 120), "speed": 12.0, "timer": 0.0, "dir": 0})
-	
+
 	# Cornfield area animals
 	roaming_animals.append({"area": "cornfield", "type": "chicken", "pos": Vector2(100, 150), "target": Vector2(100, 150), "speed": 6.0, "timer": 0.0, "dir": 0})
 	roaming_animals.append({"area": "cornfield", "type": "chicken", "pos": Vector2(350, 200), "target": Vector2(350, 200), "speed": 6.0, "timer": 0.0, "dir": 0})
@@ -1329,44 +1380,113 @@ func draw_roaming_animals_for_area(area_name: String):
 
 func draw_ninja_animal(pos: Vector2, animal_type: String, direction: int):
 	var tex: Texture2D = null
-	
+
+	# Handle chickens specially with color variants
+	if animal_type == "chicken":
+		var color_idx = int(abs(pos.x * 7 + pos.y * 13)) % 3
+		match color_idx:
+			0: tex = tex_ninja_chicken_black
+			1: tex = tex_ninja_chicken_brown
+			2: tex = tex_ninja_chicken_white
+		if not tex:
+			tex = tex_ninja_chicken
+
+		if tex:
+			draw_ellipse_shape(Vector2(pos.x, pos.y + 2), Vector2(5, 2), Color(0, 0, 0, 0.25))
+			var frame_idx = int(continuous_timer * 4 + pos.x * 0.1) % 2
+			var src = Rect2(frame_idx * 16, 0, 16, 16)
+			var sprite_size = 24.0
+			var dest = Rect2(pos.x - sprite_size / 2, pos.y - sprite_size + 4, sprite_size, sprite_size)
+			draw_texture_rect_region(tex, dest, src)
+			return
+
 	match animal_type:
 		"cat": tex = tex_ninja_cat
 		"dog": tex = tex_ninja_dog
 		"cow": tex = tex_ninja_cow
-		"chicken": tex = tex_ninja_chicken
 		"horse": tex = tex_ninja_horse
 		"donkey": tex = tex_ninja_donkey
 		"frog": tex = tex_ninja_frog
 		"fish": tex = tex_ninja_fish
 		"pig": tex = tex_ninja_pig
-	
+
 	if not tex:
 		# Draw fallback colored circle if no texture
 		var color = Color(0.6, 0.4, 0.3)
 		match animal_type:
 			"cat": color = Color(0.8, 0.6, 0.4)
 			"dog": color = Color(0.7, 0.5, 0.3)
-			"chicken": color = Color(1.0, 0.9, 0.7)
 		draw_circle(pos, 8, color)
 		return
-	
+
 	# Scale based on animal type
 	var scale = 1.5
 	match animal_type:
-		"chicken": scale = 1.2
 		"cow", "horse": scale = 1.8
 		"dog", "cat": scale = 1.4
 		"frog": scale = 1.3
-	
+
 	# Draw shadow
 	draw_ellipse_shape(Vector2(pos.x, pos.y + 2), Vector2(5, 2), Color(0, 0, 0, 0.25))
-	
+
 	# Fixed 16x16 frame from position (0,0) - first frame, no animation
 	var src = Rect2(0, 0, 16, 16)
 	var sprite_size = 16 * scale
 	var dest = Rect2(pos.x - sprite_size / 2, pos.y - sprite_size + 4, sprite_size, sprite_size)
 	draw_texture_rect_region(tex, dest, src)
+
+# ============================================
+# TUMBLEWEED SYSTEM
+# ============================================
+
+func init_tumbleweeds():
+	tumbleweeds.clear()
+	# All tumbleweeds blow right to left (wind direction)
+	# Place them along horizontal path edges
+	var y_positions = [
+		139,  # Top edge of horizontal path
+		197,  # Bottom edge of horizontal path
+		280,  # Near bottom of screen
+		100,  # Upper area
+	]
+	for i in range(4):
+		tumbleweeds.append({
+			"pos": Vector2(randf_range(50, 450), y_positions[i]),
+			"base_y": y_positions[i],
+			"speed": randf_range(6, 12),
+			"rotation": randf_range(0, TAU),
+			"bounce_offset": randf_range(0, TAU),
+			"size": randf_range(0.5, 0.75)
+		})
+
+func update_tumbleweeds(delta: float):
+	for weed in tumbleweeds:
+		# Move right to left (wind direction)
+		weed.pos.x -= weed.speed * delta
+		# Small vertical wobble to stay grounded
+		weed.pos.y = weed.base_y + sin(continuous_timer * 2 + weed.bounce_offset) * 2
+		# Rotate slowly
+		weed.rotation += delta * 1.5
+		# Wrap around when off-screen left
+		if weed.pos.x < -15:
+			weed.pos.x = 490
+			weed.speed = randf_range(6, 12)
+
+func draw_tumbleweeds():
+	for weed in tumbleweeds:
+		draw_tumbleweed(weed.pos, weed.rotation, weed.size)
+
+func draw_tumbleweed(pos: Vector2, rotation: float, size_mult: float):
+	if tex_tumbleweed:
+		var tex_size = tex_tumbleweed.get_size()
+		var scale = 0.94 * size_mult
+		var dest_size = tex_size * scale
+		# Draw with rotation by using transform
+		var dest = Rect2(pos.x - dest_size.x / 2, pos.y - dest_size.y / 2, dest_size.x, dest_size.y)
+		draw_texture_rect(tex_tumbleweed, dest, false)
+	else:
+		# Fallback: draw a simple brown circle
+		draw_circle(pos, 5 * size_mult, Color(0.6, 0.45, 0.3))
 
 # ============================================
 # AUDIO GENERATION FUNCTIONS
@@ -1432,7 +1552,11 @@ func _process(delta):
 	
 	# Update roaming animals
 	update_roaming_animals(delta)
-	
+
+	# Update tumbleweeds on farm
+	if current_area == Area.FARM:
+		update_tumbleweeds(delta)
+
 	# Grandmother leads player to irrigation at quest stage 7
 	if quest_stage == 7 and not in_dialogue:
 		# When player gets close, grandmother starts walking to irrigation
@@ -4174,9 +4298,9 @@ func _draw():
 		draw_rect(Rect2(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT), Color(0, 0, 0, screen_transition_alpha))
 
 func draw_intro_screen():
-	draw_rect(Rect2(0, 0, 480, 320), Color(0.06, 0.08, 0.1))
-	draw_rect(Rect2(20, 20, 440, 280), Color(0.15, 0.2, 0.18))
-	draw_rect(Rect2(20, 20, 440, 280), Color(0.3, 0.7, 0.65), false, 2)
+	draw_rect(Rect2(0, 0, 480, 320), Color(0.0, 0.3, 0.35))  # Teal outer background
+	draw_rect(Rect2(20, 20, 440, 280), Color(0.0, 0.4, 0.45))  # Teal inner background
+	draw_rect(Rect2(20, 20, 440, 280), Color(0.3, 0.8, 0.8), false, 2)  # Light teal border
 	
 	if intro_page < intro_text.size():
 		var lines = intro_text[intro_page]
@@ -4427,8 +4551,8 @@ func draw_farm_area_overlay():
 	# Down sign pointing to Lakeside (on grass left of vertical path)
 	draw_road_sign_vertical(145, 290, "Lakeside", false)
 	
-	# Draw roaming animals
-	draw_roaming_animals_for_area("farm")
+	# Draw tumbleweeds blowing across the farm
+	draw_tumbleweeds()
 	
 
 func draw_road_sign(x: float, y: float, text: String, arrow_right: bool):
@@ -4470,85 +4594,85 @@ func draw_road_sign_vertical(x: float, y: float, text: String, arrow_up: bool):
 	draw_string(ThemeDB.fallback_font, Vector2(x + 1, y + 10), arrow_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.15, 0.1))
 
 func draw_ground_tiles():
-	var grass_dark = Color(0.45, 0.75, 0.45)
-	var grass_mid = Color(0.55, 0.85, 0.5)
-	var grass_light = Color(0.65, 0.95, 0.55)
-	
-	for x in range(0, 480, 16):
-		for y in range(0, 320, 16):
-			var variation = fmod((x * 7 + y * 13), 3)
-			var color = grass_mid
-			if variation == 0:
-				color = grass_dark
-			elif variation == 2:
-				color = grass_light
-			draw_rect(Rect2(x, y, 16, 16), color)
-			
-			if fmod((x + y), 32) == 0:
-				draw_rect(Rect2(x + 6, y + 4, 2, 3), grass_dark)
-				draw_rect(Rect2(x + 10, y + 9, 2, 3), grass_dark)
-	
-	draw_dirt_paths()
+	# Use Ninja Adventure TilesetFloor.png (384x336, 16x16 tiles)
+	# Light green grass tiles are in rows 4-5 (y=64-96)
+	if tex_ninja_field:
+		var tile_size = 16
+		# Light green grass fill tiles from rows 4-5 (y=64-96)
+		var grass_tiles = [
+			Rect2(64, 80, 16, 16),   # Light grass fill 1
+			Rect2(80, 80, 16, 16),   # Light grass fill 2
+			Rect2(64, 96, 16, 16),   # Light grass fill 3
+			Rect2(80, 96, 16, 16),   # Light grass fill 4
+			Rect2(192, 80, 16, 16),  # Light grass fill 5 (right section)
+			Rect2(208, 80, 16, 16),  # Light grass fill 6
+		]
+
+		for x in range(0, 480, tile_size):
+			for y in range(0, 320, tile_size):
+				# Pick tile variation based on position for consistent look
+				var tile_idx = int(abs(x * 3 + y * 7)) % grass_tiles.size()
+				var src = grass_tiles[tile_idx]
+				var dest = Rect2(x, y, tile_size, tile_size)
+				draw_texture_rect_region(tex_ninja_field, dest, src)
+	else:
+		# Fallback to colored rectangles
+		var grass_mid = Color(0.55, 0.85, 0.5)
+		for x in range(0, 480, 16):
+			for y in range(0, 320, 16):
+				draw_rect(Rect2(x, y, 16, 16), grass_mid)
 
 func draw_dirt_paths():
-	if tex_tiled_dirt_wide_v2:
-		# Use the Tilled_Dirt_Wide_v2.png tileset
-		# The tileset has 16x16 tiles arranged in a grid
-		# Layout (assuming standard tileset format):
-		# Row 0: top-left corner, top edge, top-right corner, single
-		# Row 1: left edge, center fill, right edge, variations
-		# Row 2: bottom-left corner, bottom edge, bottom-right corner, variations
-		# Row 3: inner corners and special pieces
-		
+	if tex_ninja_field:
+		# Use Ninja Adventure TilesetFloor.png for paths
+		# Brown/orange path tiles from rows 2-3 (y=32-64) - grass with dirt edges
+		# Tile positions: edges and corners for proper path borders
 		var tile_size = 16
-		
+
+		# Tile offsets in the tileset (brown dirt section starts at y=32)
+		var path_base_x = 48  # Column offset for the path tiles
+		var path_base_y = 32  # Row offset for brown/green section
+
 		# Define path regions
 		var v_path_left = 200
 		var v_path_right = 264
 		var h_path_top = 144
 		var h_path_bottom = 192
-		
-		# Helper function to get tile type
-		# Returns which tile to use based on position
-		
+
 		# Draw vertical path (north-south)
 		for ty in range(0, 320, tile_size):
 			for tx in range(v_path_left, v_path_right, tile_size):
 				var tile_x = 1  # Default center
 				var tile_y = 1
-				
+
 				# Determine tile based on position
 				var is_left_edge = (tx == v_path_left)
 				var is_right_edge = (tx == v_path_right - tile_size)
 				var is_top_edge = (ty == 0)
 				var is_bottom_edge = (ty >= 304)
-				var is_in_h_path = (ty >= h_path_top and ty < h_path_bottom)
-				
-				# Skip tiles that are in the horizontal path intersection
-				# (we'll draw those with the horizontal path)
-				
+
 				if is_left_edge and is_top_edge:
-					tile_x = 0; tile_y = 0  # Top-left corner
+					tile_x = 0; tile_y = 0
 				elif is_right_edge and is_top_edge:
-					tile_x = 2; tile_y = 0  # Top-right corner
+					tile_x = 2; tile_y = 0
 				elif is_left_edge and is_bottom_edge:
-					tile_x = 0; tile_y = 2  # Bottom-left corner
+					tile_x = 0; tile_y = 2
 				elif is_right_edge and is_bottom_edge:
-					tile_x = 2; tile_y = 2  # Bottom-right corner
+					tile_x = 2; tile_y = 2
 				elif is_left_edge:
-					tile_x = 0; tile_y = 1  # Left edge
+					tile_x = 0; tile_y = 1
 				elif is_right_edge:
-					tile_x = 2; tile_y = 1  # Right edge
+					tile_x = 2; tile_y = 1
 				elif is_top_edge:
-					tile_x = 1; tile_y = 0  # Top edge
+					tile_x = 1; tile_y = 0
 				elif is_bottom_edge:
-					tile_x = 1; tile_y = 2  # Bottom edge
+					tile_x = 1; tile_y = 2
 				else:
-					tile_x = 1; tile_y = 1  # Center fill
-				
-				var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
+					tile_x = 1; tile_y = 1
+
+				var src = Rect2(path_base_x + tile_x * tile_size, path_base_y + tile_y * tile_size, tile_size, tile_size)
 				var dest = Rect2(tx, ty, tile_size, tile_size)
-				draw_texture_rect_region(tex_tiled_dirt_wide_v2, dest, src)
+				draw_texture_rect_region(tex_ninja_field, dest, src)
 		
 		# Draw horizontal path (east-west)
 		for ty in range(h_path_top, h_path_bottom, tile_size):
@@ -4558,83 +4682,81 @@ func draw_dirt_paths():
 					# Draw intersection tiles with special handling
 					var is_top_of_h = (ty == h_path_top)
 					var is_bottom_of_h = (ty == h_path_bottom - tile_size)
-					
+
 					var tile_x = 1  # Center
 					var tile_y = 1
-					
+
 					# At intersection, we need to handle the T-junctions
 					if tx == v_path_left:
 						if is_top_of_h:
-							tile_x = 3; tile_y = 0  # Inner corner top-left
+							tile_x = 3; tile_y = 0
 						elif is_bottom_of_h:
-							tile_x = 3; tile_y = 2  # Inner corner bottom-left
+							tile_x = 3; tile_y = 2
 						else:
-							tile_x = 1; tile_y = 1  # Center
+							tile_x = 1; tile_y = 1
 					elif tx == v_path_right - tile_size:
 						if is_top_of_h:
-							tile_x = 3; tile_y = 1  # Inner corner top-right (or use another)
+							tile_x = 3; tile_y = 1
 						elif is_bottom_of_h:
-							tile_x = 3; tile_y = 3 if tile_y < 4 else 2  # Inner corner bottom-right
+							tile_x = 3; tile_y = 2
 						else:
-							tile_x = 1; tile_y = 1  # Center
+							tile_x = 1; tile_y = 1
 					else:
-						tile_x = 1; tile_y = 1  # Center fill
-					
-					var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
+						tile_x = 1; tile_y = 1
+
+					var src = Rect2(path_base_x + tile_x * tile_size, path_base_y + tile_y * tile_size, tile_size, tile_size)
 					var dest = Rect2(tx, ty, tile_size, tile_size)
-					draw_texture_rect_region(tex_tiled_dirt_wide_v2, dest, src)
+					draw_texture_rect_region(tex_ninja_field, dest, src)
 					continue
-				
+
 				var tile_x = 1  # Default center
 				var tile_y = 1
-				
+
 				var is_left_edge = (tx == 0)
 				var is_right_edge = (tx >= 464)
 				var is_top_edge = (ty == h_path_top)
 				var is_bottom_edge = (ty == h_path_bottom - tile_size)
-				
+
 				# Near vertical path - need special edge handling
 				var is_near_v_left = (tx == v_path_left - tile_size)
 				var is_near_v_right = (tx == v_path_right)
-				
+
 				if is_near_v_left:
-					# Approaching vertical path from left
 					if is_top_edge:
-						tile_x = 2; tile_y = 0  # Right edge with top
+						tile_x = 2; tile_y = 0
 					elif is_bottom_edge:
-						tile_x = 2; tile_y = 2  # Right edge with bottom
+						tile_x = 2; tile_y = 2
 					else:
-						tile_x = 2; tile_y = 1  # Right edge
+						tile_x = 2; tile_y = 1
 				elif is_near_v_right:
-					# Coming from vertical path on right
 					if is_top_edge:
-						tile_x = 0; tile_y = 0  # Left edge with top
+						tile_x = 0; tile_y = 0
 					elif is_bottom_edge:
-						tile_x = 0; tile_y = 2  # Left edge with bottom
+						tile_x = 0; tile_y = 2
 					else:
-						tile_x = 0; tile_y = 1  # Left edge
+						tile_x = 0; tile_y = 1
 				elif is_left_edge and is_top_edge:
-					tile_x = 0; tile_y = 0  # Top-left corner
+					tile_x = 0; tile_y = 0
 				elif is_right_edge and is_top_edge:
-					tile_x = 2; tile_y = 0  # Top-right corner
+					tile_x = 2; tile_y = 0
 				elif is_left_edge and is_bottom_edge:
-					tile_x = 0; tile_y = 2  # Bottom-left corner
+					tile_x = 0; tile_y = 2
 				elif is_right_edge and is_bottom_edge:
-					tile_x = 2; tile_y = 2  # Bottom-right corner
+					tile_x = 2; tile_y = 2
 				elif is_left_edge:
-					tile_x = 0; tile_y = 1  # Left edge
+					tile_x = 0; tile_y = 1
 				elif is_right_edge:
-					tile_x = 2; tile_y = 1  # Right edge
+					tile_x = 2; tile_y = 1
 				elif is_top_edge:
-					tile_x = 1; tile_y = 0  # Top edge
+					tile_x = 1; tile_y = 0
 				elif is_bottom_edge:
-					tile_x = 1; tile_y = 2  # Bottom edge
+					tile_x = 1; tile_y = 2
 				else:
-					tile_x = 1; tile_y = 1  # Center fill
-				
-				var src = Rect2(tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
+					tile_x = 1; tile_y = 1
+
+				var src = Rect2(path_base_x + tile_x * tile_size, path_base_y + tile_y * tile_size, tile_size, tile_size)
 				var dest = Rect2(tx, ty, tile_size, tile_size)
-				draw_texture_rect_region(tex_tiled_dirt_wide_v2, dest, src)
+				draw_texture_rect_region(tex_ninja_field, dest, src)
 
 # DEPRECATED: This function is no longer used. 
 # All buildings/trees are now drawn via draw_entities_y_sorted() for proper layering.
@@ -4697,34 +4819,31 @@ func draw_chicken_coop(x: float, y: float):
 		draw_circle(Vector2(x + 40, y + 18), 4, Color(0.3, 0.9, 0.4, glow))
 
 func draw_chicken(x: float, y: float, small: bool):
-	if not tex_chicken_sprites:
+	# Use Ninja Adventure chicken sprites (black, brown, white variants)
+	var chicken_tex: Texture2D = null
+	# Pick color based on position for consistency
+	var color_idx = int(abs(x * 7 + y * 13)) % 3
+	match color_idx:
+		0: chicken_tex = tex_ninja_chicken_black
+		1: chicken_tex = tex_ninja_chicken_brown
+		2: chicken_tex = tex_ninja_chicken_white
+
+	if not chicken_tex:
+		chicken_tex = tex_ninja_chicken
+	if not chicken_tex:
 		return
-	
+
 	var size_mult = 0.6 if small else 1.0
 	var phase = x * 0.1 + y * 0.07
 	var idle_bob = sin(continuous_timer * 2.5 + phase) * 1.5
 	var idle_sway = sin(continuous_timer * 1.5 + phase) * 1.0
-	
-	# Detect spritesheet format
-	var tex_w = tex_chicken_sprites.get_width()
-	var tex_h = tex_chicken_sprites.get_height()
-	
-	var frame_w = 32
-	var frame_h = 32
-	
-	# Calculate number of columns and rows
-	var cols = max(1, tex_w / frame_w)
-	var rows = max(1, tex_h / frame_h)
-	var total_frames = cols * rows
-	
-	var frame_idx = int(fmod(continuous_timer * 3 + phase, total_frames))
-	var frame_col = frame_idx % cols
-	var frame_row = frame_idx / cols
-	
-	var src = Rect2(frame_col * frame_w, frame_row * frame_h, frame_w, frame_h)
-	var dest_size = frame_w * size_mult * 0.9
+
+	# Ninja chicken spritesheets are 2 frames (32x16 total, 16x16 each)
+	var frame_idx = int(continuous_timer * 4 + phase) % 2
+	var src = Rect2(frame_idx * 16, 0, 16, 16)
+	var dest_size = 28 * size_mult
 	var dest = Rect2(x - dest_size / 2 + idle_sway, y - dest_size + 8 + idle_bob, dest_size, dest_size)
-	draw_texture_rect_region(tex_chicken_sprites, dest, src)
+	draw_texture_rect_region(chicken_tex, dest, src)
 
 func draw_cow(x: float, y: float, facing_left: bool = false):
 	if not tex_cow_sprites:
@@ -5633,11 +5752,12 @@ func draw_stampede():
 	draw_rect(Rect2(0 + shake_offset.x, 175 + shake_offset.y, 480, 4), Color(0.6, 0.48, 0.38))
 	draw_rect(Rect2(0 + shake_offset.x, 200 + shake_offset.y, 480, 4), Color(0.6, 0.48, 0.38))
 	
-	# Draw animals (behind player if lower y)
+	# Draw all animals first
 	for animal in stampede_animals:
-		draw_stampede_animal_new(animal, shake_offset)
-	
-	# Draw player using combat sprite system
+		if not animal.defeated:
+			draw_stampede_animal_new(animal, shake_offset)
+
+	# Draw player on top
 	draw_stampede_player(stampede_player_pos + shake_offset)
 	
 	# Draw hit effects (floating text)
@@ -5662,8 +5782,13 @@ func draw_stampede():
 		draw_string(ThemeDB.fallback_font, Vector2(190, 40), "Best: " + str(stampede_high_score), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.7, 0.7))
 	
 	# Controls hint
-	draw_rect(Rect2(100, 295, 280, 22), Color(0, 0, 0, 0.6))
-	draw_string(ThemeDB.fallback_font, Vector2(110, 310), "Z/[X]=Jump  X/[_]=Spook  C/[O]=Dodge", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.9, 0.9, 0.9))
+	draw_rect(Rect2(60, 295, 360, 22), Color(0, 0, 0, 0.6))
+	draw_string(ThemeDB.fallback_font, Vector2(70, 310), "[X]/Z=Jump  [_]/X=Punch  [O]/C=Dodge  Q/R2=Gadget", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.9, 0.9, 0.9))
+
+	# Show equipped gadget
+	if equipped_gadget != "":
+		draw_rect(Rect2(10, 50, 80, 20), Color(0, 0, 0, 0.6))
+		draw_string(ThemeDB.fallback_font, Vector2(15, 65), equipped_gadget, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.5, 0.95, 0.88))
 	
 	if in_dialogue and not current_dialogue.is_empty():
 		draw_dialogue_box()
@@ -5677,50 +5802,86 @@ func draw_stampede_player(pos: Vector2):
 	if stampede_player_state == "idle" and stampede_player_grounded:
 		idle_bob = sin(continuous_timer * 3) * 2
 	
-	# Shadow
+	# Shadow at ground level
 	if stampede_player_grounded:
 		draw_ellipse_shape(Vector2(pos.x, stampede_ground_y + 5), Vector2(15, 5), Color(0, 0, 0, 0.3))
 	else:
-		var shadow_scale = clamp(1.0 - (stampede_ground_y - pos.y) / 100.0, 0.3, 1.0)
+		# When jumping, shadow stays on ground but shrinks based on height
+		var jump_height = stampede_ground_y - pos.y
+		var shadow_scale = clamp(1.0 - jump_height / 80.0, 0.3, 1.0)
 		draw_ellipse_shape(Vector2(pos.x, stampede_ground_y + 5), Vector2(15 * shadow_scale, 5 * shadow_scale), Color(0, 0, 0, 0.2))
 	
 	# Use new animation system if available
 	if player_anim_loaded:
 		var tex: Texture2D = null
-		var frame = player_frame % 6
+		var frame = int(continuous_timer * 10) % 6  # Smoother animation timing
 		var scale_factor = 1.8  # Larger for stampede view
-		
-		# Determine which sprite to use based on state
+		var flip_h = not stampede_player_facing_right  # Flip sprite when facing left
+
+		# Determine which sprite to use based on state and movement
 		match stampede_player_state:
 			"idle":
-				tex = tex_player_idle_south
+				# Check if player is walking while in idle state
+				if stampede_player_is_walking:
+					# Walking animation with correct direction
+					var walk_frames = tex_player_walk_east if stampede_player_facing_right else tex_player_walk_west
+					if walk_frames.size() > frame:
+						tex = walk_frames[frame]
+						flip_h = false  # Don't flip - we have directional sprites
+				else:
+					# Standing idle - face the direction we're looking
+					tex = tex_player_idle_east if stampede_player_facing_right else tex_player_idle_west
+					if not tex:
+						tex = tex_player_idle_south
+					flip_h = false
 			"jumping":
-				if tex_player_walk_south.size() > 2:
-					tex = tex_player_walk_south[2]  # Mid-walk frame
+				# Use mid-walk frame for jumping, facing correct direction
+				var walk_frames = tex_player_walk_east if stampede_player_facing_right else tex_player_walk_west
+				if walk_frames.size() > 2:
+					tex = walk_frames[2]
+					flip_h = false
+				elif tex_player_walk_south.size() > 2:
+					tex = tex_player_walk_south[2]
 			"dodging":
-				if tex_player_walk_west.size() > frame:
-					tex = tex_player_walk_west[frame]
+				# Dodge animation with correct direction
+				var walk_frames = tex_player_walk_east if stampede_player_facing_right else tex_player_walk_west
+				if walk_frames.size() > frame:
+					tex = walk_frames[frame]
+					flip_h = false
 			"attacking":
-				# Use attack animation frames
-				if tex_player_attack_south.size() > 0:
+				# Use attack animation frames with correct direction
+				var attack_frames = tex_player_attack_east if stampede_player_facing_right else tex_player_attack_west
+				if attack_frames.size() > 0:
+					var attack_frame = int((0.25 - stampede_player_state_timer) * 24) % attack_frames.size()
+					attack_frame = clamp(attack_frame, 0, attack_frames.size() - 1)
+					tex = attack_frames[attack_frame]
+					flip_h = false
+				elif tex_player_attack_south.size() > 0:
 					var attack_frame = int((0.25 - stampede_player_state_timer) * 24) % tex_player_attack_south.size()
 					attack_frame = clamp(attack_frame, 0, tex_player_attack_south.size() - 1)
 					tex = tex_player_attack_south[attack_frame]
-				elif tex_player_walk_south.size() > frame:
-					tex = tex_player_walk_south[frame]
 			"hit":
-				tex = tex_player_idle_south
+				tex = tex_player_idle_east if stampede_player_facing_right else tex_player_idle_west
+				if not tex:
+					tex = tex_player_idle_south
+				flip_h = false
 			_:
-				if tex_player_walk_south.size() > frame:
-					tex = tex_player_walk_south[frame]
-		
+				var walk_frames = tex_player_walk_east if stampede_player_facing_right else tex_player_walk_west
+				if walk_frames.size() > frame:
+					tex = walk_frames[frame]
+					flip_h = false
+
 		if not tex and tex_player_idle_south:
 			tex = tex_player_idle_south
-		
+
 		if tex:
 			var w = tex.get_width() * scale_factor
 			var h = tex.get_height() * scale_factor
 			var dest = Rect2(pos.x - w/2, pos.y - h + 10 + idle_bob, w, h)
+			# Handle sprite flipping if needed
+			if flip_h:
+				dest.position.x = pos.x + w/2
+				dest.size.x = -w
 			draw_texture_rect(tex, dest, false, flash_mod)
 			
 			# Attack swing effect
@@ -5784,25 +5945,46 @@ func draw_stampede_animal_new(animal: Dictionary, offset: Vector2):
 	if is_defeated:
 		tint = Color(0.5, 0.5, 0.5, 0.6)
 	
-	# Shadow
+	# Shadow at ground level
 	if not is_defeated:
 		draw_ellipse_shape(Vector2(pos.x, stampede_ground_y + 3), Vector2(18, 5), Color(0, 0, 0, 0.25))
 	
 	match animal_type:
-		ANIMAL_CHICKEN:
-			if tex_chicken_sprites:
-				var frame_w = 32
-				var frame_h = 32
-				var frame_idx = int(fmod(continuous_timer * 6 + pos.x * 0.1, 6))
-				var frame_col = frame_idx % 2
-				var frame_row = frame_idx / 2
-				var src = Rect2(frame_col * frame_w, frame_row * frame_h, frame_w, frame_h)
+		"chicken":
+			# Use Ninja Adventure chicken sprites (black, brown, white variants)
+			var chicken_tex: Texture2D = null
+			# Pick color based on animal position hash for consistency
+			var color_idx = int(abs(animal.pos.x * 7 + animal.pos.y * 13)) % 3
+			match color_idx:
+				0: chicken_tex = tex_ninja_chicken_black
+				1: chicken_tex = tex_ninja_chicken_brown
+				2: chicken_tex = tex_ninja_chicken_white
+
+			if not chicken_tex:
+				chicken_tex = tex_ninja_chicken  # Fallback to default
+
+			if chicken_tex:
+				# Ninja chicken spritesheets are 2 frames (32x16 total, 16x16 each)
+				var frame_idx = int(continuous_timer * 4) % 2
+				var src = Rect2(frame_idx * 16, 0, 16, 16)
 				var dest = Rect2(pos.x - 20, pos.y - 32, 40, 40)
-				draw_texture_rect_region(tex_chicken_sprites, dest, src, tint)
+				draw_texture_rect_region(chicken_tex, dest, src, tint)
+			else:
+				# Fallback chicken - simple rectangles
+				var body_col = Color(1.0, 0.95, 0.8)
+				var comb_col = Color(0.9, 0.25, 0.2)
+				if tint.r > 1.5:  # Hit flash
+					body_col = Color(1.5, 1.5, 1.5)
+					comb_col = Color(1.5, 1.0, 1.0)
+				draw_rect(Rect2(pos.x - 10, pos.y - 20, 20, 16), body_col)
+				draw_rect(Rect2(pos.x - 4, pos.y - 26, 8, 8), body_col)
+				draw_rect(Rect2(pos.x - 2, pos.y - 30, 4, 5), comb_col)
+				draw_rect(Rect2(pos.x + 4, pos.y - 24, 4, 3), Color(1.0, 0.6, 0.2))
+
 			if not is_defeated:
 				draw_animal_hp_bar(pos, animal)
-			
-		ANIMAL_COW:
+
+		"cow":
 			if tex_cow_sprites:
 				var frame_w = 32
 				var frame_h = 32
@@ -5812,10 +5994,15 @@ func draw_stampede_animal_new(animal: Dictionary, offset: Vector2):
 				var src = Rect2(frame_col * frame_w, frame_row * frame_h, frame_w, frame_h)
 				var dest = Rect2(pos.x - 28, pos.y - 36, 56, 44)
 				draw_texture_rect_region(tex_cow_sprites, dest, src, tint)
+			else:
+				# Fallback cow
+				draw_rect(Rect2(pos.x - 20, pos.y - 28, 40, 24), Color(0.9 * tint.r, 0.9 * tint.g, 0.85 * tint.b))
+				draw_rect(Rect2(pos.x + 15, pos.y - 32, 12, 14), Color(0.85 * tint.r, 0.85 * tint.g, 0.8 * tint.b))
+				draw_circle(Vector2(pos.x + 20, pos.y - 26), 2, Color(0.1, 0.1, 0.1))
 			if not is_defeated:
 				draw_animal_hp_bar(pos, animal)
-			
-		ANIMAL_BULL:
+
+		"bull":
 			# Body - brown
 			draw_rect(Rect2(pos.x - 28, pos.y - 32, 56, 32), Color(0.5 * tint.r, 0.32 * tint.g, 0.22 * tint.b))
 			# Head
@@ -5834,12 +6021,12 @@ func draw_stampede_animal_new(animal: Dictionary, offset: Vector2):
 			if not is_defeated:
 				draw_animal_hp_bar(pos, animal)
 		
-		ANIMAL_ROBOT:
+		"robot":
 			# Small patrol robot
 			var metal = Color(0.5 * tint.r, 0.55 * tint.g, 0.6 * tint.b)
 			var dark_metal = Color(0.3 * tint.r, 0.35 * tint.g, 0.4 * tint.b)
 			var eye_color = Color(1.0, 0.2, 0.1) if not is_defeated else Color(0.3, 0.1, 0.1)
-			
+
 			# Body
 			draw_rect(Rect2(pos.x - 15, pos.y - 30, 30, 25), dark_metal)
 			draw_rect(Rect2(pos.x - 13, pos.y - 28, 26, 21), metal)
@@ -5857,8 +6044,8 @@ func draw_stampede_animal_new(animal: Dictionary, offset: Vector2):
 			# HP bar
 			if not is_defeated:
 				draw_animal_hp_bar(pos, animal)
-		
-		ANIMAL_ROBOT_HEAVY:
+
+		"heavy_robot":
 			# Heavy enforcer robot
 			var metal = Color(0.4 * tint.r, 0.4 * tint.g, 0.45 * tint.b)
 			var dark_metal = Color(0.25 * tint.r, 0.25 * tint.g, 0.3 * tint.b)
@@ -6113,10 +6300,10 @@ func draw_ellipse(center: Vector2, size: Vector2, color: Color):
 func draw_kaido(pos: Vector2):
 	# Idle animation - gentle floating/bobbing motion (vertical only)
 	var idle_float = sin(continuous_timer * 2.5) * 2.0
-	
+
 	# Small shadow underneath
 	draw_ellipse(Vector2(pos.x, pos.y + 2), Vector2(8, 3), Color(0, 0, 0, 0.25))
-	
+
 	if tex_kaido:
 		var w = tex_kaido.get_width()
 		var h = tex_kaido.get_height()
@@ -6124,15 +6311,12 @@ func draw_kaido(pos: Vector2):
 		var draw_w: int
 		var draw_h: int
 		if w > 48:
-			# Scale 96x96 down to 24x24 (1/4 scale)
 			draw_w = int(w / 4)
 			draw_h = int(h / 4)
 		elif w > 32:
-			# Scale 48x48 down to 24x24 (1/2 scale)
 			draw_w = int(w / 2)
 			draw_h = int(h / 2)
 		else:
-			# Use original size
 			draw_w = w
 			draw_h = h
 		var dest = Rect2(pos.x - draw_w / 2, pos.y - draw_h + 3 + idle_float, draw_w, draw_h)
@@ -6799,7 +6983,7 @@ func draw_menu_tool(x: float, y: float, tool_idx: int, is_selected: bool):
 func draw_kaido_on_bench(x: float, y: float):
 	# Shadow on bench
 	draw_ellipse_shape(Vector2(x, y + 45), Vector2(20, 6), Color(0, 0, 0, 0.2))
-	
+
 	if tex_kaido:
 		var tex_w = tex_kaido.get_width()
 		var tex_h = tex_kaido.get_height()

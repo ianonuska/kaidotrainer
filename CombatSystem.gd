@@ -529,7 +529,10 @@ func process_combat_movement(delta):
 	var input_x = game.get_input_horizontal()
 	var target_speed = input_x * 220
 	var accel = 2000.0 if input_x != 0 else 1500.0
-	
+
+	# Track if player is walking (for animation)
+	game.combat_player_is_walking = (input_x != 0 and game.combat_player_state == "idle")
+
 	# Metal tunnel floor haptics (reduced)
 	if input_x != 0:
 		game.footstep_timer += delta
@@ -1043,17 +1046,25 @@ func draw_combat_player(pos: Vector2):
 	# Use new animation system if available
 	if game.player_anim_loaded:
 		var tex: Texture2D = null
-		var frame = game.player_frame % 6
+		var frame = int(game.continuous_timer * 10) % 6  # Smoother animation timing
 		var scale_factor = 2.0  # Larger for combat view
 		var flip = not game.combat_player_facing_right
 		
 		# Determine which sprite to use based on state and facing
 		match game.combat_player_state:
 			"idle":
-				if game.combat_player_facing_right:
-					tex = game.tex_player_idle_east
+				# Check if player is walking while in idle state
+				if game.combat_player_is_walking:
+					# Walking animation with correct direction
+					var walk_frames = game.tex_player_walk_east if game.combat_player_facing_right else game.tex_player_walk_west
+					if walk_frames.size() > frame:
+						tex = walk_frames[frame]
 				else:
-					tex = game.tex_player_idle_west
+					# Standing idle
+					if game.combat_player_facing_right:
+						tex = game.tex_player_idle_east
+					else:
+						tex = game.tex_player_idle_west
 			"attacking", "heavy_attack":
 				# Use attack animation frames
 				var attack_frames = game.tex_player_attack_east if game.combat_player_facing_right else game.tex_player_attack_west
