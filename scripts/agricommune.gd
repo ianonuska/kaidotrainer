@@ -281,12 +281,12 @@ var building_collisions: Array = [
 	# Trees - trunk collision only (matched to actual trunk rects)
 	# Large trees: trunk at (x+12, y+35, 16, 25)
 	# Left tree removed
-	Rect2(107, 45, 16, 25),     # Large tree at (95, 10)
-	Rect2(432, 40, 16, 25),     # Large tree at (420, 5)
-	Rect2(442, 255, 16, 25),    # Large tree at (430, 220)
+	Rect2(107, 45, 16, 25),     # Large tree at (95, 10) - top left
+	Rect2(462, 40, 16, 25),     # Large tree at (450, 5) - top right corner (moved from 420)
+	Rect2(12, 255, 16, 25),     # Large tree at (0, 220) - bottom left corner (moved from 430,220)
 	# Medium trees: trunk at (x+6, y+28, 12, 16)
 	# Medium tree removed
-	Rect2(356, 278, 12, 16),    # Medium tree at (350, 250)
+	Rect2(466, 278, 12, 16),    # Medium tree at (460, 250) - bottom right (moved from 350,250)
 ]
 
 # Flashlight in shed
@@ -324,11 +324,12 @@ var awareness_decay_rate: float = 15.0  # How fast it drops when hidden
 var awareness_fill_rate: float = 25.0  # How fast it fills when spotted
 var is_hiding: bool = false
 var hiding_spots: Array = [
-	Vector2(200, 180),   # Behind big tree
+	Vector2(95, 50),     # Behind top-left tree
 	Vector2(95, 220),    # Behind irrigation
 	Vector2(340, 260),   # At the shed (where you build circuits)
 	Vector2(325, 235),   # Behind shed
 	Vector2(310, 85),    # Behind house
+	Vector2(0, 260),     # Behind bottom-left tree
 ]
 var player_detected: bool = false  # Game over state
 var kaido_warned_to_hide: bool = false
@@ -2038,14 +2039,14 @@ func check_collision(pos: Vector2) -> bool:
 		if Vector2(365, 230).distance_to(pos) < 12:
 			return true
 		
-		# Cherry blossom trees (trunks)
-		if Vector2(35, 25).distance_to(pos) < 15:
+		# Cherry blossom trees (trunks) - positioned in corners
+		if Vector2(25, 25).distance_to(pos) < 15:   # Top left corner
 			return true
-		if Vector2(445, 25).distance_to(pos) < 15:
+		if Vector2(465, 25).distance_to(pos) < 15:  # Top right corner
 			return true
-		if Vector2(35, 275).distance_to(pos) < 15:
+		if Vector2(25, 275).distance_to(pos) < 15:  # Bottom left corner
 			return true
-		if Vector2(445, 275).distance_to(pos) < 15:
+		if Vector2(465, 275).distance_to(pos) < 15: # Bottom right corner
 			return true
 	
 	return false
@@ -4427,12 +4428,12 @@ func draw_entities_y_sorted():
 				entities.append({"type": "kid", "pos": kid_pos})
 			# Buildings (foot Y = where player stands in front)
 			# Trees - large trees foot at y+60, medium at y+44
-			# Left tree removed - was blocking path
-			entities.append({"type": "farm_tree_large", "pos": Vector2(95, 70), "draw_pos": Vector2(95, 10)})
-			entities.append({"type": "farm_tree_large", "pos": Vector2(420, 65), "draw_pos": Vector2(420, 5)})
-			entities.append({"type": "farm_tree_large", "pos": Vector2(430, 280), "draw_pos": Vector2(430, 220)})
-			# Medium tree removed - was blocking path
-			entities.append({"type": "farm_tree_medium", "pos": Vector2(350, 294), "draw_pos": Vector2(350, 250)})
+			# Positioned to avoid overlapping with buildings
+			entities.append({"type": "farm_tree_large", "pos": Vector2(95, 70), "draw_pos": Vector2(95, 10)})      # Top left - clear
+			entities.append({"type": "farm_tree_large", "pos": Vector2(450, 65), "draw_pos": Vector2(450, 5)})     # Top right corner
+			entities.append({"type": "farm_tree_large", "pos": Vector2(0, 280), "draw_pos": Vector2(0, 220)})      # Bottom left corner
+			# Medium tree in bottom right (away from shed/tunnel)
+			entities.append({"type": "farm_tree_medium", "pos": Vector2(460, 294), "draw_pos": Vector2(460, 250)})
 			# Main buildings
 			entities.append({"type": "farm_house", "pos": Vector2(320, 111)})  # foot at bottom
 			entities.append({"type": "farm_shed", "pos": Vector2(300, 235)})
@@ -4466,11 +4467,11 @@ func draw_entities_y_sorted():
 				entities.append({"type": "generic_npc", "pos": npc.pos, "name": npc.name})
 		
 		Area.TOWN_CENTER:
-			# Cherry blossom trees
-			entities.append({"type": "cherry_tree", "pos": Vector2(35, 45), "draw_pos": Vector2(10, 0)})
-			entities.append({"type": "cherry_tree", "pos": Vector2(455, 45), "draw_pos": Vector2(430, 0)})
-			entities.append({"type": "cherry_tree", "pos": Vector2(35, 295), "draw_pos": Vector2(10, 250)})
-			entities.append({"type": "cherry_tree", "pos": Vector2(455, 295), "draw_pos": Vector2(430, 250)})
+			# Cherry blossom trees - positioned in corners away from buildings
+			entities.append({"type": "cherry_tree", "pos": Vector2(25, 45), "draw_pos": Vector2(0, 0)})       # Top left corner
+			entities.append({"type": "cherry_tree", "pos": Vector2(465, 45), "draw_pos": Vector2(440, 0)})    # Top right corner (away from bakery)
+			entities.append({"type": "cherry_tree", "pos": Vector2(25, 295), "draw_pos": Vector2(0, 250)})    # Bottom left corner
+			entities.append({"type": "cherry_tree", "pos": Vector2(465, 295), "draw_pos": Vector2(440, 250)}) # Bottom right corner
 			# Buildings with their foot Y positions
 			entities.append({"type": "town_shop", "pos": Vector2(70, 92)})
 			entities.append({"type": "town_hall", "pos": Vector2(240, 107)})
@@ -5037,12 +5038,11 @@ func draw_water_pond(x: float, y: float):
 	area_draw.draw_water_pond(x, y)
 
 func draw_trees():
-	# Left tree removed
-	draw_tree_large(95, 10)
-	draw_tree_large(420, 5)
-	draw_tree_large(430, 220)
-	# Medium tree removed
-	draw_tree_medium(350, 250)
+	# Trees repositioned to corners to avoid overlapping with buildings
+	draw_tree_large(95, 10)    # Top left
+	draw_tree_large(450, 5)    # Top right corner
+	draw_tree_large(0, 220)    # Bottom left corner
+	draw_tree_medium(460, 250) # Bottom right
 
 func draw_tree_large(x: float, y: float):
 	area_draw.draw_tree_large(x, y)
