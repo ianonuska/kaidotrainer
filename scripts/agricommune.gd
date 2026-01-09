@@ -5381,26 +5381,26 @@ func draw_lakeside_area_background():
 		draw_circle(Vector2(300, 190), 80, water_deep)
 		draw_circle(Vector2(345, 155), 85, water_mid)
 
-	# Draw sandy shore using lake_sand tiles - dense coverage
+	# Draw sandy shore using lake_sand tiles - overlapping for seamless coverage
 	if tex_lake_sand:
-		# West shore (near dock) - full grid coverage
-		for sx in range(160, 256, 32):
-			for sy in range(96, 224, 32):
+		# West shore (near dock) - overlapping tiles (step 16 for 32px tiles)
+		for sx in range(144, 256, 16):
+			for sy in range(80, 224, 16):
 				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
-		# South shore - full grid coverage
-		for sx in range(224, 416, 32):
-			for sy in range(224, 320, 32):
+		# South shore - overlapping tiles
+		for sx in range(208, 432, 16):
+			for sy in range(208, 320, 16):
 				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
-		# North shore - full grid coverage
-		for sx in range(288, 448, 32):
-			for sy in range(0, 64, 32):
+		# North shore - overlapping tiles
+		for sx in range(272, 464, 16):
+			for sy in range(-16, 64, 16):
 				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
 	else:
 		# Fallback: procedural sand
 		var sand = Color(0.78, 0.70, 0.55)
-		draw_rect(Rect2(160, 96, 96, 128), sand)
-		draw_rect(Rect2(224, 224, 192, 96), sand)
-		draw_rect(Rect2(288, 0, 160, 64), sand)
+		draw_rect(Rect2(144, 80, 112, 144), sand)
+		draw_rect(Rect2(208, 208, 224, 112), sand)
+		draw_rect(Rect2(272, 0, 192, 64), sand)
 
 	# Dirt path from top (farm exit)
 	draw_rect(Rect2(215, 0, 50, 100), dirt_path)
@@ -5408,15 +5408,15 @@ func draw_lakeside_area_background():
 	draw_circle(Vector2(240, 100), 30, dirt_path)
 	draw_circle(Vector2(230, 120), 25, dirt_path_light)
 
-	# Rocky outcrop in bottom-right (near sewer) - dense grid coverage
+	# Rocky outcrop in bottom-right (near sewer) - overlapping tiles
 	if tex_cliff_rock:
-		for rx in range(368, 480, 32):
-			for ry in range(224, 320, 32):
+		for rx in range(352, 480, 16):
+			for ry in range(208, 320, 16):
 				draw_texture_rect(tex_cliff_rock, Rect2(rx, ry, 32, 32), false)
 	else:
 		# Fallback: procedural rocks
 		var rock_color = Color(0.48, 0.45, 0.42)
-		draw_rect(Rect2(368, 224, 112, 96), rock_color)
+		draw_rect(Rect2(352, 208, 128, 112), rock_color)
 
 	# Note: Dock, rocks, trees, sewer drawn by Y-sorted entity system
 
