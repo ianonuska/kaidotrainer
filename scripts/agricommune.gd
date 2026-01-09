@@ -120,8 +120,8 @@ var cornfield_led_placed: bool = false
 
 # Lakeside (Down Road) - Scenic, fishing, secrets
 var lakeside_npcs: Array = [
-	{"pos": Vector2(210, 180), "name": "Fisher Bo", "dialogue": "The fish aren't biting today. Bad omen."},
-	{"pos": Vector2(350, 260), "name": "Old Mira", "dialogue": "I've seen patrol boats on the lake at night."},
+	{"pos": Vector2(150, 210), "name": "Fisher Bo", "dialogue": "The fish aren't biting today. Bad omen."},
+	{"pos": Vector2(280, 290), "name": "Old Mira", "dialogue": "I've seen patrol boats on the lake at night."},
 ]
 var lakeside_secret_found: bool = false
 
@@ -299,7 +299,7 @@ var kaido_speed: float = 100.0  # Kaido's movement speed
 var shed_pos: Vector2 = Vector2(372, 245)  # Door/interaction point
 var radiotower_pos: Vector2 = Vector2(55, 105)  # Base of tower where player climbs
 var irrigation_pos: Vector2 = Vector2(100, 220)
-var tunnel_pos: Vector2 = Vector2(420, 270)  # In lakeside area, on the cliff
+var tunnel_pos: Vector2 = Vector2(430, 285)  # In lakeside area, rocky outcrop
 
 # Building interior exploration
 var interior_player_pos: Vector2 = Vector2(240, 250)  # Player position inside buildings
@@ -1317,10 +1317,10 @@ func init_roaming_animals():
 	roaming_animals.append({"area": "cornfield", "type": "horse", "pos": Vector2(380, 120), "target": Vector2(380, 120), "speed": 16.0, "timer": 0.0, "dir": 0})
 	roaming_animals.append({"area": "cornfield", "type": "dog", "pos": Vector2(80, 250), "target": Vector2(80, 250), "speed": 18.0, "timer": 0.0, "dir": 0})
 	
-	# Lakeside area animals
-	roaming_animals.append({"area": "lakeside", "type": "frog", "pos": Vector2(150, 260), "target": Vector2(150, 260), "speed": 20.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "lakeside", "type": "frog", "pos": Vector2(350, 270), "target": Vector2(350, 270), "speed": 20.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "lakeside", "type": "cat", "pos": Vector2(400, 280), "target": Vector2(400, 280), "speed": 15.0, "timer": 0.0, "dir": 0})
+	# Lakeside area animals (positions for top-down view)
+	roaming_animals.append({"area": "lakeside", "type": "frog", "pos": Vector2(260, 280), "target": Vector2(260, 280), "speed": 20.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "lakeside", "type": "frog", "pos": Vector2(200, 220), "target": Vector2(200, 220), "speed": 20.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "lakeside", "type": "cat", "pos": Vector2(60, 150), "target": Vector2(60, 150), "speed": 15.0, "timer": 0.0, "dir": 0})
 	
 	# Town center area animals
 	roaming_animals.append({"area": "town_center", "type": "dog", "pos": Vector2(100, 200), "target": Vector2(100, 200), "speed": 18.0, "timer": 0.0, "dir": 0})
@@ -1372,7 +1372,7 @@ func get_area_bounds(area: String) -> Rect2:
 		"cornfield":
 			return Rect2(40, 80, 400, 200)
 		"lakeside":
-			return Rect2(40, 250, 400, 50)
+			return Rect2(30, 50, 180, 250)  # Left grassy area, avoiding lake
 		"town_center":
 			return Rect2(40, 100, 400, 180)
 		_:
@@ -1955,28 +1955,37 @@ func check_collision(pos: Vector2) -> bool:
 		for npc in lakeside_npcs:
 			if npc.pos.distance_to(pos) < 18:
 				return true
-		# Water collision - block y: 80-225 EXCEPT on dock area (x: 145-235)
-		if pos.y > 80 and pos.y < 225:
-			# Allow walking on the dock
-			if pos.x < 145 or pos.x > 235:
-				return true
-		# Cliff collision (right side) - blocks the cliff face area
-		# Sewer is accessible from shore (y >= 230)
-		if pos.x > 380 and pos.y < 230:
+		# Lake collision (top-down view - organic shape on right side)
+		# Main lake body centered around (340, 160)
+		var in_lake = false
+		if Vector2(340, 160).distance_to(pos) < 110:
+			in_lake = true
+		if Vector2(380, 140).distance_to(pos) < 80:
+			in_lake = true
+		if Vector2(300, 190).distance_to(pos) < 70:
+			in_lake = true
+		# Allow dock area (extends from west shore into lake)
+		var on_dock = pos.x > 140 and pos.x < 220 and pos.y > 140 and pos.y < 190
+		if in_lake and not on_dock:
 			return true
-		# Sewer entrance collision (allow entering through the door)
-		var sewer_x = tunnel_pos.x - 20
-		var sewer_y = tunnel_pos.y - 30
-		if player_rect.intersects(Rect2(sewer_x, sewer_y, 50, 45)):
-			# Allow door area (center of sewer)
-			if pos.x < sewer_x + 10 or pos.x > sewer_x + 40:
-				return true
-		# Rocks collision
-		if Vector2(100, 260).distance_to(pos) < 18:
+		# Rocky outcrop collision (bottom-right, near sewer)
+		if Vector2(420, 260).distance_to(pos) < 30:
 			return true
-		if Vector2(300, 280).distance_to(pos) < 22:
+		if Vector2(440, 250).distance_to(pos) < 20:
 			return true
-		if Vector2(320, 270).distance_to(pos) < 14:
+		if Vector2(455, 270).distance_to(pos) < 15:
+			return true
+		# Decorative rocks on shore
+		if Vector2(80, 200).distance_to(pos) < 15:
+			return true
+		if Vector2(120, 280).distance_to(pos) < 18:
+			return true
+		# Trees along edges
+		if Vector2(40, 60).distance_to(pos) < 20:
+			return true
+		if Vector2(30, 280).distance_to(pos) < 20:
+			return true
+		if Vector2(460, 300).distance_to(pos) < 18:
 			return true
 	
 	elif current_area == Area.TOWN_CENTER:
@@ -3286,8 +3295,12 @@ func interact_shed():
 			]
 			next_dialogue()
 		1:
-			# Show schematic first
-			show_schematic("led_lamp")
+			# Show Kaido dialogue, then schematic
+			dialogue_queue = [
+				{"speaker": "kaido", "text": "The parts are here. I will find a schematic in my memory files for the build."},
+				{"speaker": "schematic", "text": "led_lamp"},
+			]
+			next_dialogue()
 		2:
 			enter_shed_interior()
 		5:
@@ -4469,14 +4482,17 @@ func draw_entities_y_sorted():
 				entities.append({"type": "generic_npc", "pos": npc.pos, "name": npc.name})
 		
 		Area.LAKESIDE:
-			# Dock structure
-			entities.append({"type": "lakeside_dock", "pos": Vector2(190, 230)})
-			# Sewer entrance on the cliff
+			# Trees along edges
+			entities.append({"type": "lakeside_tree1", "pos": Vector2(40, 90), "draw_pos": Vector2(20, 40)})
+			entities.append({"type": "lakeside_tree2", "pos": Vector2(30, 300), "draw_pos": Vector2(10, 250)})
+			entities.append({"type": "lakeside_tree3", "pos": Vector2(460, 310), "draw_pos": Vector2(440, 260)})
+			# Dock structure (west shore of lake)
+			entities.append({"type": "lakeside_dock", "pos": Vector2(180, 190)})
+			# Rocks on shore
+			entities.append({"type": "lakeside_rock1", "pos": Vector2(80, 200)})
+			entities.append({"type": "lakeside_rock2", "pos": Vector2(120, 280)})
+			# Sewer entrance in rocky outcrop (bottom-right)
 			entities.append({"type": "lakeside_sewer", "pos": Vector2(tunnel_pos.x, tunnel_pos.y + 30)})
-			# Rocks (as obstacles)
-			entities.append({"type": "lakeside_rock1", "pos": Vector2(100, 260)})
-			entities.append({"type": "lakeside_rock2", "pos": Vector2(300, 280)})
-			entities.append({"type": "lakeside_rock3", "pos": Vector2(320, 270)})
 			# NPCs
 			for npc in lakeside_npcs:
 				entities.append({"type": "generic_npc", "pos": npc.pos, "name": npc.name})
@@ -4523,11 +4539,13 @@ func draw_entities_y_sorted():
 			# Cornfield
 			"cornfield_farmhouse": draw_cornfield_farmhouse()
 			# Lakeside
-			"lakeside_dock": draw_lakeside_dock()
+			"lakeside_tree1": draw_tree_large(e.draw_pos.x, e.draw_pos.y)
+			"lakeside_tree2": draw_tree_medium(e.draw_pos.x, e.draw_pos.y)
+			"lakeside_tree3": draw_tree_small(e.draw_pos.x, e.draw_pos.y)
+			"lakeside_dock": draw_lakeside_dock_topdown(160, 155)
 			"lakeside_sewer": draw_tunnel_entrance(tunnel_pos.x - 20, tunnel_pos.y - 30)
-			"lakeside_rock1": draw_circle(Vector2(100, 260), 15, Color(0.5, 0.48, 0.45))
-			"lakeside_rock2": draw_circle(Vector2(300, 280), 20, Color(0.55, 0.5, 0.48))
-			"lakeside_rock3": draw_circle(Vector2(320, 270), 12, Color(0.5, 0.47, 0.43))
+			"lakeside_rock1": draw_rock_cluster(80, 195)
+			"lakeside_rock2": draw_rock_cluster(120, 275)
 			# Town buildings
 			"cherry_tree": draw_cherry_blossom_tree(e.draw_pos.x, e.draw_pos.y)
 			"town_shop": draw_town_building_shop()
@@ -5307,66 +5325,94 @@ func draw_cornfield_area():
 	draw_cornfield_area_overlay()
 
 func draw_lakeside_area_background():
-	# Draw lakeside scene background (no NPCs, rocks, or dock - those are Y-sorted)
-	var water_deep = Color(0.25, 0.42, 0.62)
-	var water_mid = Color(0.35, 0.55, 0.75)
-	var water_light = Color(0.5, 0.7, 0.88)
-	var cliff = Color(0.5, 0.45, 0.4)
-	var grass = Color(0.45, 0.65, 0.4)
-	
-	# Sky gradient
-	for i in range(80):
-		var t = i / 80.0
-		var sky_color = Color(0.45 + t * 0.15, 0.6 + t * 0.12, 0.85 + t * 0.08)
-		draw_rect(Rect2(0, i, 480, 1), sky_color)
-	
-	# Distant mountains with shading
-	var mountain_pts = PackedVector2Array([
-		Vector2(0, 80), Vector2(80, 30), Vector2(150, 70),
-		Vector2(220, 20), Vector2(300, 60), Vector2(380, 25),
-		Vector2(480, 80)
-	])
-	draw_colored_polygon(mountain_pts, Color(0.35, 0.4, 0.48))
-	# Mountain highlights
-	var highlight_pts = PackedVector2Array([
-		Vector2(80, 30), Vector2(100, 50), Vector2(60, 50)
-	])
-	draw_colored_polygon(highlight_pts, Color(0.45, 0.5, 0.58))
-	var highlight_pts2 = PackedVector2Array([
-		Vector2(220, 20), Vector2(250, 50), Vector2(190, 50)
-	])
-	draw_colored_polygon(highlight_pts2, Color(0.45, 0.5, 0.58))
-	
-	# Lake with depth
-	draw_rect(Rect2(0, 80, 480, 150), water_deep)
-	draw_rect(Rect2(0, 90, 480, 100), water_mid)
-	# Water ripples
-	for i in range(12):
-		var rx = 30 + i * 38
-		var ry = 115 + sin(continuous_timer * 2 + i * 0.7) * 4
-		draw_rect(Rect2(rx, ry, 28, 2), water_light)
-		draw_rect(Rect2(rx + 5, ry + 8, 20, 1), Color(1, 1, 1, 0.2))
-	
-	# Shore
-	draw_rect(Rect2(0, 230, 480, 90), grass)
-	# Sand strip with gradient
-	draw_rect(Rect2(0, 222, 480, 12), Color(0.75, 0.65, 0.5))
-	draw_rect(Rect2(0, 222, 480, 4), Color(0.8, 0.7, 0.55))
-	
-	# Cliffs on right with shading
-	draw_rect(Rect2(380, 100, 100, 130), cliff)
-	draw_rect(Rect2(380, 100, 15, 130), Color(0.42, 0.38, 0.35))
-	draw_rect(Rect2(465, 100, 15, 130), Color(0.58, 0.52, 0.48))
-	draw_rect(Rect2(400, 80, 80, 30), Color(0.55, 0.5, 0.45))
-	# Note: Dock and rocks drawn by Y-sorted entity system
+	# Top-down view of lakeside area with lake on right side
+	var water_deep = Color(0.22, 0.40, 0.58)
+	var water_mid = Color(0.32, 0.52, 0.72)
+	var water_light = Color(0.45, 0.65, 0.82)
+	var sand = Color(0.78, 0.70, 0.55)
+	var sand_wet = Color(0.65, 0.58, 0.45)
+	var grass_base = Color(0.35, 0.55, 0.32)
+	var grass_light = Color(0.42, 0.62, 0.38)
+	var dirt_path = Color(0.55, 0.45, 0.35)
+	var dirt_path_light = Color(0.62, 0.52, 0.42)
+
+	# Base grass layer
+	draw_rect(Rect2(0, 0, 480, 320), grass_base)
+
+	# Draw grass tiles if available
+	if tex_grass_tile and tex_grass_tile_dark:
+		for x in range(0, 480, 32):
+			for y in range(0, 320, 32):
+				var variation = int(fmod((x / 32 + y / 32), 2))
+				var tex = tex_grass_tile if variation == 0 else tex_grass_tile_dark
+				draw_texture_rect(tex, Rect2(x, y, 32, 32), false)
+
+	# Lake shape (organic oval on right side of screen)
+	# Main lake body
+	draw_circle(Vector2(340, 160), 120, water_deep)
+	draw_circle(Vector2(380, 140), 90, water_deep)
+	draw_circle(Vector2(300, 190), 80, water_deep)
+	# Lighter water in center
+	draw_circle(Vector2(345, 155), 85, water_mid)
+	draw_circle(Vector2(370, 145), 60, water_mid)
+	# Light reflections
+	draw_circle(Vector2(350, 140), 40, water_light)
+	draw_circle(Vector2(320, 170), 25, Color(1, 1, 1, 0.15))
+
+	# Animated water ripples
+	for i in range(5):
+		var rx = 300 + i * 30 + sin(continuous_timer * 1.5 + i) * 8
+		var ry = 130 + i * 20 + cos(continuous_timer * 1.2 + i * 0.8) * 5
+		draw_circle(Vector2(rx, ry), 3 + sin(continuous_timer * 2 + i) * 1, Color(1, 1, 1, 0.2))
+
+	# Sandy shore around lake (drawn as crescents/arcs)
+	# West shore (where dock is)
+	draw_circle(Vector2(220, 160), 35, sand)
+	draw_circle(Vector2(210, 130), 25, sand)
+	draw_circle(Vector2(215, 195), 30, sand)
+	# Wet sand near water
+	draw_circle(Vector2(235, 160), 20, sand_wet)
+	draw_circle(Vector2(230, 140), 15, sand_wet)
+	draw_circle(Vector2(232, 185), 18, sand_wet)
+	# South shore
+	draw_circle(Vector2(300, 270), 40, sand)
+	draw_circle(Vector2(350, 275), 35, sand)
+	draw_circle(Vector2(320, 265), 25, sand_wet)
+	# North shore
+	draw_circle(Vector2(340, 45), 30, sand)
+	draw_circle(Vector2(380, 55), 25, sand)
+
+	# Dirt path from top (farm exit) going down-left
+	# Main vertical path
+	draw_rect(Rect2(215, 0, 50, 100), dirt_path)
+	draw_rect(Rect2(220, 0, 40, 100), dirt_path_light)
+	# Path curves toward shore
+	draw_circle(Vector2(240, 100), 30, dirt_path)
+	draw_circle(Vector2(230, 120), 25, dirt_path_light)
+
+	# Rocky outcrop in bottom-right (near sewer)
+	var rock_color = Color(0.48, 0.45, 0.42)
+	var rock_dark = Color(0.38, 0.35, 0.32)
+	draw_circle(Vector2(420, 260), 35, rock_color)
+	draw_circle(Vector2(440, 250), 25, rock_dark)
+	draw_circle(Vector2(400, 275), 20, rock_color)
+	draw_circle(Vector2(455, 270), 18, rock_dark)
+
+	# Grass patches for variety
+	draw_circle(Vector2(60, 80), 25, grass_light)
+	draw_circle(Vector2(100, 250), 30, grass_light)
+	draw_circle(Vector2(150, 290), 20, grass_light)
+	draw_circle(Vector2(50, 180), 22, grass_light)
+
+	# Note: Dock, rocks, trees, sewer drawn by Y-sorted entity system
 
 func draw_lakeside_area_overlay():
 	# Journal page sparkle
 	draw_area_journal_sparkles("lakeside")
-	
-	# Exit sign (on shore grass, left side of path)
-	draw_road_sign_vertical(165, 240, "Farm", true)
-	
+
+	# Exit sign (next to path at top, pointing up to farm)
+	draw_road_sign_vertical(270, 30, "Farm", true)
+
 	# Draw roaming animals
 	draw_roaming_animals_for_area("lakeside")
 
@@ -5507,6 +5553,33 @@ func draw_cornfield_farmhouse():
 
 func draw_lakeside_dock():
 	area_draw.draw_lakeside_dock(180, 220)
+
+func draw_lakeside_dock_topdown(x: float, y: float):
+	# Top-down dock extending east into the lake
+	var wood = Color(0.55, 0.42, 0.32)
+	var wood_dark = Color(0.45, 0.35, 0.25)
+	var wood_light = Color(0.62, 0.50, 0.40)
+	# Main dock planks (horizontal, extending into water)
+	for i in range(10):
+		var plank_color = wood if i % 2 == 0 else wood_dark
+		draw_rect(Rect2(x + i * 7, y, 6, 35), plank_color)
+	# Side rails
+	draw_rect(Rect2(x, y - 2, 70, 3), wood_light)
+	draw_rect(Rect2(x, y + 34, 70, 3), wood_light)
+	# Support posts (at start and end)
+	draw_circle(Vector2(x + 5, y + 17), 4, wood_dark)
+	draw_circle(Vector2(x + 65, y + 17), 4, wood_dark)
+
+func draw_rock_cluster(x: float, y: float):
+	# Small cluster of rocks
+	var rock1 = Color(0.52, 0.48, 0.45)
+	var rock2 = Color(0.45, 0.42, 0.40)
+	var rock3 = Color(0.58, 0.55, 0.50)
+	draw_circle(Vector2(x, y), 12, rock1)
+	draw_circle(Vector2(x + 10, y - 5), 8, rock2)
+	draw_circle(Vector2(x - 5, y + 8), 6, rock3)
+	# Highlight
+	draw_circle(Vector2(x - 2, y - 3), 4, Color(0.65, 0.62, 0.58))
 
 func draw_cherry_blossom_tree(x: float, y: float):
 	area_draw.draw_cherry_blossom_tree(x, y)
