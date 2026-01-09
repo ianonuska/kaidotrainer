@@ -1,16 +1,16 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1767913590
+::res://::1767915219
 AreaDrawing.gd::GDScript::8377337878883713143::1767848004::0::1::::<>RefCounted<><>0<>0<><>::
 CLAUDE.md::TextFile::-1::1767908736::0::1::::<><><>0<>0<><>::
 CombatSystem.gd::GDScript::3994250691615151869::1767912750::0::1::::<>RefCounted<><>0<>0<><>::
 DialogueData.gd::GDScript::7384739827257158323::1767896183::0::1::::<>RefCounted<><>0<>0<><>::
 InteriorScenes.gd::GDScript::8683251563683665242::1767823446::0::1::::<>RefCounted<><>0<>0<><>::
 README.md::TextFile::-1::1767904760::0::1::::<><><>0<>0<><>::
-StampedeSystem.gd::GDScript::3861536790835778206::1767913533::0::1::::<>RefCounted<><>0<>0<><>::
+StampedeSystem.gd::GDScript::3861536790835778206::1767914464::0::1::::<>RefCounted<><>0<>0<><>::
 UIDrawing.gd::GDScript::3097777891614230131::1767823468::0::1::::<>RefCounted<><>0<>0<><>::
 ::res://A_small_teal_turquoise_robot_character_with_a_roun/::1767913571
 metadata.json::JSON::-1::1767931554::0::1::::<><><>0<>0<><>::
-::res://A_small_teal_turquoise_robot_character_with_a_roun/rotations/::1767913560
+::res://A_small_teal_turquoise_robot_character_with_a_roun/rotations/::1767913648
 east.png::CompressedTexture2D::5555678956718051071::1767931554::1767913648::1::::<><><>0<>0<>a43d13c844cc06d4eca21273d458e7a2<>res://.godot/imported/east.png-d938d800b92adaa0ef310d8459b8ab86.ctex::
 north.png::CompressedTexture2D::3863220421897008163::1767931554::1767913648::1::::<><><>0<>0<>a7fb76d52c94c86f83803c72bd9ef3cc<>res://.godot/imported/north.png-1f63f307ead0bb33b3589711b017393f.ctex::
 south.png::CompressedTexture2D::3835088103722116725::1767931554::1767913648::1::::<><><>0<>0<>01a7679a5caf4eab8e6cfbf989528097<>res://.godot/imported/south.png-4fae7c25b92bcd21f0bcf996e79f1ee5.ctex::
@@ -1808,7 +1808,7 @@ TopSheet16x16.png::CompressedTexture2D::8433587419791726230::1614114690::1767339
 ::res://Ninja Adventure - Asset Pack/Backgrounds/Animated/WaterMill/::1767339492
 Watermill_A_34x36.png::CompressedTexture2D::6123434071344373381::1659318224::1767339492::1::::<><><>0<>0<>ec1b8674de1e27d093af9afcff79192d<>res://.godot/imported/Watermill_A_34x36.png-fb50d91f9ede7a106adb2746fcb2509a.ctex::
 Watermill_B_34x36.png::CompressedTexture2D::5152583467785504783::1692550094::1767339492::1::::<><><>0<>0<>3ce1d799fe973735a5b92cd8cf831be8<>res://.godot/imported/Watermill_B_34x36.png-e1b36b7c56649be41935b7da464e31b7.ctex::
-::res://Ninja Adventure - Asset Pack/Backgrounds/Tilesets/::1767339492
+::res://Ninja Adventure - Asset Pack/Backgrounds/Tilesets/::1767915648
 Pipes.png::CompressedTexture2D::1236433853033546532::1659295530::1767339492::1::::<><><>0<>0<>e036ff7e5b69532d1212c89505ee77d6<>res://.godot/imported/Pipes.png-b44e2ad3bf0564cc0d3dc2b78952c7d1.ctex::
 TilesetDesert.png::CompressedTexture2D::1832428131364284344::1693011636::1767339492::1::::<><><>0<>0<>f9c7ba2906f519fed79c68b1c32d697d<>res://.godot/imported/TilesetDesert.png-c4c2c2654684bca8bd15d8ce39262bc0.ctex::
 TilesetDungeon.png::CompressedTexture2D::5514350433305794097::1659293794::1767339492::1::::<><><>0<>0<>a4fc49279091d809086346a26cd8d2af<>res://.godot/imported/TilesetDungeon.png-8e5b7bb5058af6d35c06f4f3e388d4f1.ctex::
@@ -2616,9 +2616,9 @@ south.png::CompressedTexture2D::2765653575711965133::1767840826::1767823431::1::
 west.png::CompressedTexture2D::4950548782970019020::1767840826::1767823431::1::::<><><>0<>0<>deb1021ea96d903ba90cd588da101f57<>res://.godot/imported/west.png-d84bf98c14c5095e3c9363c9f9ad78c4.ctex::
 ::res://scenes/::1767906805
 agricommune.tscn::PackedScene::8789876156870967695::1767906805::0::1::::<><><>0<>0<><>::uid://c8op4ayef0hl3::::res://scripts/agricommune.gd
-::res://scripts/::1767913420
+::res://scripts/::1767916657
 agricommune copy-11000linesofcode.gd::GDScript::2362289233662191766::1767586891::0::1::::<>Node2D<><>0<>0<><>::
-agricommune.gd::GDScript::7118937076177567046::1767913420::0::1::::<>Node2D<><>0<>0<><>::
+agricommune.gd::GDScript::7118937076177567046::1767916657::0::1::::<>Node2D<><>0<>0<><>::
 AreaDrawing.gd::GDScript::1775356581325495835::1767596189::0::1::::<>RefCounted<><>0<>0<><>::
 ::res://Sprout Lands - Sprites - Basic pack/::1767845510
 read_me.txt::TextFile::-1::1719885670::0::1::::<><><>0<>0<><>::
@@ -2686,10 +2686,11 @@ schematic_series_leds.png::CompressedTexture2D::7968819087074628919::1767726477:
 ::res://Sprout Lands - Sprites - Basic pack/Sprout Lands color pallet/::1767331885
 Sprout Lands defautlt palette snip.PNG::CompressedTexture2D::4048715327034707683::1689739358::1767331885::1::::<><><>0<>0<>6df01300c57847a71758548b51fb7f72<>res://.godot/imported/Sprout Lands defautlt palette snip.PNG-be9fcab7ac461807b6d8034935b29921.ctex::
 Sprout Lands defautlt palette.png::CompressedTexture2D::7240500356492038571::1689739286::1767331885::1::::<><><>0<>0<>00c5dd6e955b40063eaf6522a31edc75<>res://.godot/imported/Sprout Lands defautlt palette.png-988bcd1819d06e4e6e29269896390f5c.ctex::
-::res://Sprout Lands - Sprites - Basic pack/Tilesets/::1767673396
+::res://Sprout Lands - Sprites - Basic pack/Tilesets/::1767916931
 2070D138-BE3A-4FA7-A2F1-29E95131EFAB.PNG::CompressedTexture2D::4640609110206527849::1767670939::1767671780::1::::<><><>0<>0<>89cabdc475ee7cf7f8ad7fee96262a33<>res://.godot/imported/2070D138-BE3A-4FA7-A2F1-29E95131EFAB.PNG-f56cf0804c0c078dcdca5eea8be8820f.ctex::
 Bitmask references 1.png::CompressedTexture2D::4305567785781590409::1702912542::1767331885::1::::<><><>0<>0<>36c8c11a782c1f7a206ded9138b23d78<>res://.godot/imported/Bitmask references 1.png-1fbe43bac6f21de820179f4d6fe069df.ctex::
 Bitmask references 2.png::CompressedTexture2D::1756064446271583418::1702912546::1767331885::1::::<><><>0<>0<>3c4b5745f75dd2bbb3f981bda85d93a8<>res://.godot/imported/Bitmask references 2.png-657a376a65214e93b5b4e70c1cc32dfe.ctex::
+dirt_tile.png::CompressedTexture2D::4527979116172721259::1767916925::1767916961::1::::<><><>0<>0<>e19fc86cfa4a6f12eb34416bffe24a7e<>res://.godot/imported/dirt_tile.png-611ebc21b465f85119a0278de46eb68b.ctex::
 Doors.png::CompressedTexture2D::1773033216909038541::1721584366::1767331885::1::::<><><>0<>0<>6cd3468a3473bade10f662ff7d7ffcf6<>res://.godot/imported/Doors.png-6238556af1b121a1dbb3812e916dab51.ctex::
 Fences.png::CompressedTexture2D::3692768885920375786::1640175332::1767331885::1::::<><><>0<>0<>7142aa686d0ee6232c2db4a8ecf07d94<>res://.godot/imported/Fences.png-56759b1dede644b9211778dfdb3c424f.ctex::
 Grass.png::CompressedTexture2D::6145628389845599597::1702927252::1767331885::1::::<><><>0<>0<>8cc0ff92eb686ebbfb08b47a3bfd803c<>res://.godot/imported/Grass.png-9471cfd9941c76549d260ff73d519620.ctex::

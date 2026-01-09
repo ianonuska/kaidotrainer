@@ -656,6 +656,7 @@ var tex_old_family_photo: Texture2D
 var tex_grass_tileset: Texture2D
 var tex_grass_tile: Texture2D
 var tex_grass_tile_dark: Texture2D
+var tex_dirt_tile: Texture2D
 var tex_ninja_field: Texture2D  # Ninja Adventure TilesetField.png for ground tiles
 var tex_ninja_oldman: Texture2D
 var tex_ninja_oldman2: Texture2D
@@ -1088,7 +1089,9 @@ func load_sprites():
 		tex_grass_tile = load(TILESET_PATH + "grass_tile.png")
 	if ResourceLoader.exists(TILESET_PATH + "grass_tile_dark.png"):
 		tex_grass_tile_dark = load(TILESET_PATH + "grass_tile_dark.png")
-	
+	if ResourceLoader.exists(TILESET_PATH + "dirt_tile.png"):
+		tex_dirt_tile = load(TILESET_PATH + "dirt_tile.png")
+
 	# A1: Add Pig to animals
 	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Pig/SpriteSheet.png"):
 		tex_ninja_pig = load(NINJA_ANIMALS_PATH + "Pig/SpriteSheet.png")
@@ -4610,14 +4613,10 @@ func draw_ground_tiles():
 				draw_rect(Rect2(x, y, 16, 16), grass_mid)
 
 func draw_dirt_paths():
-	if tex_tiled_dirt_wide:
-		# Use Sprout Lands Tilled_Dirt_Wide.png for paths
-		# Based on bitmask reference: 3x3 grid starts at column 1 (x=16)
-		# Layout: corners at (16,0), (48,0), (16,32), (48,32)
-		#         edges at (32,0), (16,16), (48,16), (32,32)
-		#         center fill at (32,16)
-		var tile_size = 16
-		var base_x = 16  # Tileset 3x3 grid starts at x=16
+	# Use simple dirt_tile.png for paths
+	if tex_dirt_tile:
+		var tile_w = tex_dirt_tile.get_width()
+		var tile_h = tex_dirt_tile.get_height()
 
 		# Define path regions
 		var v_path_left = 200
@@ -4626,99 +4625,14 @@ func draw_dirt_paths():
 		var h_path_bottom = 192
 
 		# Draw vertical path (north-south)
-		for ty in range(0, 320, tile_size):
-			for tx in range(v_path_left, v_path_right, tile_size):
-				var tile_x = 1  # Default center
-				var tile_y = 1
+		for ty in range(0, 320, tile_h):
+			for tx in range(v_path_left, v_path_right, tile_w):
+				draw_texture(tex_dirt_tile, Vector2(tx, ty))
 
-				# Determine tile based on position
-				var is_left_edge = (tx == v_path_left)
-				var is_right_edge = (tx == v_path_right - tile_size)
-				var is_top_edge = (ty == 0)
-				var is_bottom_edge = (ty >= 304)
-
-				if is_left_edge and is_top_edge:
-					tile_x = 0; tile_y = 0
-				elif is_right_edge and is_top_edge:
-					tile_x = 2; tile_y = 0
-				elif is_left_edge and is_bottom_edge:
-					tile_x = 0; tile_y = 2
-				elif is_right_edge and is_bottom_edge:
-					tile_x = 2; tile_y = 2
-				elif is_left_edge:
-					tile_x = 0; tile_y = 1
-				elif is_right_edge:
-					tile_x = 2; tile_y = 1
-				elif is_top_edge:
-					tile_x = 1; tile_y = 0
-				elif is_bottom_edge:
-					tile_x = 1; tile_y = 2
-				else:
-					tile_x = 1; tile_y = 1
-
-				var src = Rect2(base_x + tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
-				var dest = Rect2(tx, ty, tile_size, tile_size)
-				draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
-		
 		# Draw horizontal path (east-west)
-		for ty in range(h_path_top, h_path_bottom, tile_size):
-			for tx in range(0, 480, tile_size):
-				# Skip the intersection area (already drawn by vertical path)
-				if tx >= v_path_left and tx < v_path_right:
-					# Draw center fill for intersection
-					var src = Rect2(base_x + 1 * tile_size, 1 * tile_size, tile_size, tile_size)
-					var dest = Rect2(tx, ty, tile_size, tile_size)
-					draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
-					continue
-
-				var tile_x = 1  # Default center
-				var tile_y = 1
-
-				var is_left_edge = (tx == 0)
-				var is_right_edge = (tx >= 464)
-				var is_top_edge = (ty == h_path_top)
-				var is_bottom_edge = (ty == h_path_bottom - tile_size)
-
-				# Near vertical path - need special edge handling
-				var is_near_v_left = (tx == v_path_left - tile_size)
-				var is_near_v_right = (tx == v_path_right)
-
-				if is_near_v_left:
-					if is_top_edge:
-						tile_x = 2; tile_y = 0
-					elif is_bottom_edge:
-						tile_x = 2; tile_y = 2
-					else:
-						tile_x = 2; tile_y = 1
-				elif is_near_v_right:
-					if is_top_edge:
-						tile_x = 0; tile_y = 0
-					elif is_bottom_edge:
-						tile_x = 0; tile_y = 2
-					else:
-						tile_x = 0; tile_y = 1
-				elif is_left_edge and is_top_edge:
-					tile_x = 0; tile_y = 0
-				elif is_right_edge and is_top_edge:
-					tile_x = 2; tile_y = 0
-				elif is_left_edge and is_bottom_edge:
-					tile_x = 0; tile_y = 2
-				elif is_right_edge and is_bottom_edge:
-					tile_x = 2; tile_y = 2
-				elif is_left_edge:
-					tile_x = 0; tile_y = 1
-				elif is_right_edge:
-					tile_x = 2; tile_y = 1
-				elif is_top_edge:
-					tile_x = 1; tile_y = 0
-				elif is_bottom_edge:
-					tile_x = 1; tile_y = 2
-				else:
-					tile_x = 1; tile_y = 1
-
-				var src = Rect2(base_x + tile_x * tile_size, tile_y * tile_size, tile_size, tile_size)
-				var dest = Rect2(tx, ty, tile_size, tile_size)
-				draw_texture_rect_region(tex_tiled_dirt_wide, dest, src)
+		for ty in range(h_path_top, h_path_bottom, tile_h):
+			for tx in range(0, 480, tile_w):
+				draw_texture(tex_dirt_tile, Vector2(tx, ty))
 
 # DEPRECATED: This function is no longer used. 
 # All buildings/trees are now drawn via draw_entities_y_sorted() for proper layering.
