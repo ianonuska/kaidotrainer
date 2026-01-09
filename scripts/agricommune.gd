@@ -4874,33 +4874,40 @@ func draw_secret_sparkles():
 	for page_name in farm_pages:
 		if page_name in journal_pages_found:
 			continue
-		
+
 		var pos = journal_page_locations[page_name]
 		var dist = player_pos.distance_to(pos)
-		
+
 		# Use flashlight position if on, otherwise player position
 		var check_pos = get_flashlight_pos() if flashlight_on else player_pos
 		var light_dist = check_pos.distance_to(pos)
-		
-		# Brighter/more visible if flashlight is shining on it
+
+		# Fully bright when close or flashlight shining on it
 		if flashlight_on and light_dist < 50:
 			draw_journal_page_item(pos, 1.0)
+		elif dist < 40:
+			# Very close - fully visible and bright
+			draw_journal_page_item(pos, 1.0)
 		elif dist < 120:
-			var alpha = 1.0 - (dist / 120.0)
-			alpha *= 0.5  # Dimmer when not lit
+			# Fade in as player approaches (closer = more visible)
+			var alpha = 1.0 - ((dist - 40) / 80.0)
 			draw_journal_page_item(pos, alpha)
 
 func draw_area_journal_sparkles(page_name: String):
 	# Draw journal page sparkle for a specific area
 	if page_name in journal_pages_found:
 		return
-	
+
 	var pos = journal_page_locations[page_name]
 	var dist = player_pos.distance_to(pos)
-	
-	if dist < 120:
-		var alpha = 1.0 - (dist / 120.0)
-		draw_journal_page_item(pos, alpha * 0.7)
+
+	if dist < 40:
+		# Very close - fully visible and bright
+		draw_journal_page_item(pos, 1.0)
+	elif dist < 120:
+		# Fade in as player approaches (closer = more visible)
+		var alpha = 1.0 - ((dist - 40) / 80.0)
+		draw_journal_page_item(pos, alpha)
 
 func draw_journal_page_item(pos: Vector2, alpha: float):
 	var outline = Color(0, 0, 0, alpha)
