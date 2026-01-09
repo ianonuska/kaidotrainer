@@ -4493,9 +4493,7 @@ func draw_entities_y_sorted():
 	for e in entities:
 		match e.type:
 			# Characters
-			"player":
-				draw_player(e.pos)
-				draw_gadget_overlay(e.pos)  # Draw gadget on top of player
+			"player": draw_player(e.pos)
 			"kaido": draw_kaido(e.pos)
 			"grandmother": draw_grandmother(e.pos)
 			"farmer_wen": draw_farmer_wen(e.pos)
@@ -6116,76 +6114,6 @@ func draw_player_animated(pos: Vector2):
 	
 	if is_hiding:
 		draw_circle(pos, 20, Color(0.2, 0.4, 0.3, 0.4))
-
-func draw_gadget_overlay(pos: Vector2):
-	# Draw equipped gadget sprite offset from player based on facing direction
-	# Only draw when gadget is actively being used
-
-	# Check if any gadget is active
-	var gadget_active = false
-	var gadget_to_draw = ""
-
-	if equipped_gadget == "led_lamp" and flashlight_on:
-		gadget_active = true
-		gadget_to_draw = "led_lamp"
-	elif gadget_effect_active and equipped_gadget != "":
-		gadget_active = true
-		gadget_to_draw = equipped_gadget
-
-	if not gadget_active:
-		return
-
-	# Calculate offset based on player facing direction (8-10px)
-	var offset = Vector2.ZERO
-	match player_facing:
-		"right": offset = Vector2(8, 0)
-		"left": offset = Vector2(-8, 0)
-		"up": offset = Vector2(0, -8)
-		"down": offset = Vector2(0, 8)
-
-	var gadget_pos = pos + offset
-
-	# Get the appropriate texture for the gadget
-	var tex: Texture2D = null
-	match gadget_to_draw:
-		"led_lamp": tex = tex_gadget_flashlight
-		"dimmer": tex = tex_gadget_dimmer
-		"led_chain": tex = tex_gadget_led_chain
-		"light_sensor": tex = tex_gadget_light_sensor
-		"buzzer_alarm": tex = tex_gadget_buzzer
-
-	if tex:
-		# Draw the gadget texture centered on the offset position
-		var w = tex.get_width()
-		var h = tex.get_height()
-		# Scale to appropriate size (12x12 pixels for held gadget)
-		var draw_size = 12
-		var dest = Rect2(gadget_pos.x - draw_size/2, gadget_pos.y - draw_size/2 - 16, draw_size, draw_size)
-		draw_texture_rect(tex, dest, false)
-
-		# If flashlight is on, draw a light glow effect
-		if gadget_to_draw == "led_lamp" and flashlight_on:
-			var glow_color = Color(1.0, 0.95, 0.7, 0.3)
-			draw_circle(gadget_pos + Vector2(0, -16), 8, glow_color)
-	else:
-		# Fallback: Draw colored rectangle placeholder
-		var gadget_color = Color(0.8, 0.8, 0.8)  # Default gray
-		match gadget_to_draw:
-			"led_lamp": gadget_color = Color(1.0, 0.9, 0.3)  # Yellow for flashlight
-			"dimmer": gadget_color = Color(0.6, 0.4, 0.8)    # Purple for dimmer
-			"led_chain": gadget_color = Color(0.3, 0.9, 0.4) # Green for LED chain
-			"light_sensor": gadget_color = Color(0.9, 0.8, 0.3) # Gold for light sensor
-			"buzzer_alarm": gadget_color = Color(0.3, 0.3, 0.3) # Dark gray for buzzer
-
-		# Draw placeholder rectangle (8x10 pixels)
-		var rect = Rect2(gadget_pos.x - 4, gadget_pos.y - 26, 8, 10)
-		draw_rect(rect, gadget_color)
-		draw_rect(rect, Color(0, 0, 0), false, 1)  # Outline
-
-		# If flashlight is on, draw a light cone effect
-		if gadget_to_draw == "led_lamp" and flashlight_on:
-			var glow_color = Color(1.0, 0.95, 0.7, 0.4)
-			draw_circle(gadget_pos + Vector2(0, -20), 6, glow_color)
 
 func draw_grandmother(pos: Vector2):
 	# Shadow
