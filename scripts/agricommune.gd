@@ -5092,22 +5092,22 @@ func draw_tunnel_entrance(x: float, y: float):
 	var wood_dark = Color(0.4, 0.3, 0.22)
 	
 	# Sign post (to the left of entrance)
-	var sign_x = x - 45
+	var sign_x = x + 55  # Right side of tunnel entrance
 	var sign_y = y + 5
-	
+
 	# Post with outline
 	draw_rect(Rect2(sign_x + 8, sign_y + 12, 6, 30), outline)
 	draw_rect(Rect2(sign_x + 9, sign_y + 13, 4, 28), wood_dark)
-	
+
 	# Sign board with outline
 	draw_rect(Rect2(sign_x - 2, sign_y - 2, 44, 18), outline)
 	draw_rect(Rect2(sign_x, sign_y, 40, 14), wood)
 	draw_rect(Rect2(sign_x + 1, sign_y + 1, 38, 12), Color(0.6, 0.5, 0.38))
-	
+
 	# Nails
 	draw_circle(Vector2(sign_x + 4, sign_y + 4), 2, Color(0.4, 0.4, 0.45))
 	draw_circle(Vector2(sign_x + 36, sign_y + 4), 2, Color(0.4, 0.4, 0.45))
-	
+
 	# Text on sign
 	draw_string(ThemeDB.fallback_font, Vector2(sign_x + 3, sign_y + 11), "SEWERS", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.25, 0.2, 0.15))
 	
