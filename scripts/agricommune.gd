@@ -266,8 +266,8 @@ var building_collisions: Array = [
 	Rect2(67, 50, 8, 60),       # Radiotower right leg
 	# Pond: drawn at (385, 55), ellipse center (415, 80), radii 42x32
 	Rect2(390, 30, 50, 50),     # Pond water area
-	# Chicken coop: drawn at (120, 90), body larger by 20%
-	Rect2(120, 100, 48, 36),    # Chicken coop body
+	# Chicken coop: drawn at chicken_coop_pos (120, 90) with x-15 offset, so renders at x=105
+	Rect2(105, 100, 48, 36),    # Chicken coop body (adjusted to match actual sprite position)
 	# Tunnel entrance: drawn at (tunnel_pos.x - 20, tunnel_pos.y - 30) = (400, 250)
 	# Main structure is 50x45, sign post now on the right side
 	Rect2(400, 260, 50, 35),    # Tunnel entrance archway (adjusted to not block approach)
@@ -5030,6 +5030,9 @@ func draw_shed_sprite(x: float, y: float):
 		# Door outline
 		draw_rect(Rect2(x + 15, y + 27, 22, 24), outline)
 		draw_rect(Rect2(x + 16, y + 28, 20, 22), Color(0.35, 0.26, 0.20))
+
+func draw_chicken_coop(x: float, y: float):
+	area_draw.draw_chicken_coop(x, y, tex_chicken_house)
 
 func draw_fence(x: float, y: float, count: int):
 	area_draw.draw_fence(x, y, count)
