@@ -604,6 +604,7 @@ var tex_water_panel: Texture2D
 var tex_grass_biome: Texture2D
 var tex_chicken_house: Texture2D
 var tex_shed: Texture2D
+var tex_sewer: Texture2D
 var tex_chicken_sprites: Texture2D
 var tex_cow_sprites: Texture2D
 
@@ -961,7 +962,11 @@ func load_sprites():
 	# Load shed
 	if ResourceLoader.exists(OBJECTS_PATH + "shed.png"):
 		tex_shed = load(OBJECTS_PATH + "shed.png")
-	
+
+	# Load sewer
+	if ResourceLoader.exists(OBJECTS_PATH + "sewer.png"):
+		tex_sewer = load(OBJECTS_PATH + "sewer.png")
+
 	# Load chicken sprites
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/Free Chicken Sprites.png"):
 		tex_chicken_sprites = load(SPROUT_PATH + "Characters/Free Chicken Sprites.png")
@@ -5091,43 +5096,11 @@ func draw_radiotower_large(x: float, y: float):
 		draw_circle(Vector2(x + 25, y - 5), 4, Color(1.0, 1.0, 0.9))
 
 func draw_tunnel_entrance(x: float, y: float):
-	# Stone archway with outlines
-	var stone = Color(0.55, 0.5, 0.45)
-	var stone_dark = Color(0.42, 0.38, 0.35)
-	var outline = Color(0.0, 0.0, 0.0)
-	var wood = Color(0.55, 0.4, 0.3)
-	var wood_dark = Color(0.4, 0.3, 0.22)
-	
-	# Sign post (to the left of entrance)
-	var sign_x = x + 55  # Right side of tunnel entrance
-	var sign_y = y + 5
-
-	# Post with outline
-	draw_rect(Rect2(sign_x + 8, sign_y + 12, 6, 30), outline)
-	draw_rect(Rect2(sign_x + 9, sign_y + 13, 4, 28), wood_dark)
-
-	# Sign board with outline
-	draw_rect(Rect2(sign_x - 2, sign_y - 2, 44, 18), outline)
-	draw_rect(Rect2(sign_x, sign_y, 40, 14), wood)
-	draw_rect(Rect2(sign_x + 1, sign_y + 1, 38, 12), Color(0.6, 0.5, 0.38))
-
-	# Nails
-	draw_circle(Vector2(sign_x + 4, sign_y + 4), 2, Color(0.4, 0.4, 0.45))
-	draw_circle(Vector2(sign_x + 36, sign_y + 4), 2, Color(0.4, 0.4, 0.45))
-
-	# Text on sign
-	draw_string(ThemeDB.fallback_font, Vector2(sign_x + 3, sign_y + 11), "SEWERS", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.25, 0.2, 0.15))
-	
-	# Main structure outline
-	draw_rect(Rect2(x - 1, y - 1, 52, 47), outline)
-	draw_rect(Rect2(x, y, 50, 45), stone)
-	draw_rect(Rect2(x + 8, y + 10, 34, 35), Color(0.1, 0.1, 0.12))
-	
-	# Arch stones with outline
-	for i in range(5):
-		var ax = x + 5 + i * 10
-		draw_rect(Rect2(ax - 1, y - 1, 10, 10), outline)
-		draw_rect(Rect2(ax, y, 8, 8), stone_dark)
+	# Draw sewer sprite
+	if tex_sewer:
+		var w = tex_sewer.get_width()
+		var h = tex_sewer.get_height()
+		draw_texture_rect(tex_sewer, Rect2(x, y, w, h), false)
 
 func draw_dark_areas():
 	for area in dark_areas:
