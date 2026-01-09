@@ -1974,12 +1974,12 @@ func check_collision(pos: Vector2) -> bool:
 		var on_dock = pos.x > 140 and pos.x < 220 and pos.y > 140 and pos.y < 190
 		if in_lake and not on_dock:
 			return true
-		# Rocky outcrop collision (bottom-right, near sewer)
-		if Vector2(420, 260).distance_to(pos) < 30:
-			return true
-		if Vector2(440, 250).distance_to(pos) < 20:
-			return true
-		if Vector2(455, 270).distance_to(pos) < 15:
+		# Sewer sprite collision (64x64 at draw pos 410, 255)
+		# Only block the upper/back portion, allow player to approach from front
+		var sewer_draw_x = tunnel_pos.x - 20  # 410
+		var sewer_draw_y = tunnel_pos.y - 30  # 255
+		# Block walking into the sewer structure (upper 40px of sprite)
+		if pos.x > sewer_draw_x and pos.x < sewer_draw_x + 64 and pos.y > sewer_draw_y and pos.y < sewer_draw_y + 40:
 			return true
 		# Decorative rocks on shore
 		if Vector2(80, 200).distance_to(pos) < 15:
@@ -4498,7 +4498,8 @@ func draw_entities_y_sorted():
 			entities.append({"type": "lakeside_rock1", "pos": Vector2(80, 200)})
 			entities.append({"type": "lakeside_rock2", "pos": Vector2(120, 280)})
 			# Sewer entrance in rocky outcrop (bottom-right)
-			entities.append({"type": "lakeside_sewer", "pos": Vector2(tunnel_pos.x, tunnel_pos.y + 30)})
+			# Y-sort at top of doorway so player appears in front when below
+			entities.append({"type": "lakeside_sewer", "pos": Vector2(tunnel_pos.x, tunnel_pos.y - 10)})
 			# NPCs
 			for npc in lakeside_npcs:
 				entities.append({"type": "generic_npc", "pos": npc.pos, "name": npc.name})
