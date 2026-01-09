@@ -120,8 +120,8 @@ var cornfield_led_placed: bool = false
 
 # Lakeside (Down Road) - Scenic, fishing, secrets
 var lakeside_npcs: Array = [
-	{"pos": Vector2(100, 200), "name": "Fisher Bo", "dialogue": "The fish aren't biting today. Bad omen."},
-	{"pos": Vector2(380, 150), "name": "Old Mira", "dialogue": "I've seen patrol boats on the lake at night."},
+	{"pos": Vector2(210, 180), "name": "Fisher Bo", "dialogue": "The fish aren't biting today. Bad omen."},
+	{"pos": Vector2(350, 260), "name": "Old Mira", "dialogue": "I've seen patrol boats on the lake at night."},
 ]
 var lakeside_secret_found: bool = false
 
@@ -268,10 +268,6 @@ var building_collisions: Array = [
 	Rect2(390, 30, 50, 50),     # Pond water area
 	# Chicken coop: drawn at chicken_coop_pos (120, 90)
 	Rect2(110, 100, 30, 36),    # Chicken coop body
-	# Tunnel entrance: drawn at (tunnel_pos.x - 20, tunnel_pos.y - 30) = (400, 250)
-	# Main structure is 50x45, sign post now on the right side
-	Rect2(400, 260, 50, 35),    # Tunnel entrance archway (adjusted to not block approach)
-	Rect2(455, 260, 40, 35),    # Tunnel sign post area (moved to right side)
 
 	# Irrigation system: control panel at (70, 210, 35, 30), pipes extending right
 		 # Irrigation control panel
@@ -303,7 +299,7 @@ var kaido_speed: float = 100.0  # Kaido's movement speed
 var shed_pos: Vector2 = Vector2(372, 245)  # Door/interaction point
 var radiotower_pos: Vector2 = Vector2(55, 105)  # Base of tower where player climbs
 var irrigation_pos: Vector2 = Vector2(100, 220)
-var tunnel_pos: Vector2 = Vector2(420, 280)
+var tunnel_pos: Vector2 = Vector2(420, 270)  # In lakeside area, on the cliff
 
 # Building interior exploration
 var interior_player_pos: Vector2 = Vector2(240, 250)  # Player position inside buildings
@@ -1964,9 +1960,17 @@ func check_collision(pos: Vector2) -> bool:
 			# Allow walking on the dock
 			if pos.x < 145 or pos.x > 235:
 				return true
-		# Cliff collision (right side)
+		# Cliff collision (right side) - blocks the cliff face area
+		# Sewer is accessible from shore (y >= 230)
 		if pos.x > 380 and pos.y < 230:
 			return true
+		# Sewer entrance collision (allow entering through the door)
+		var sewer_x = tunnel_pos.x - 20
+		var sewer_y = tunnel_pos.y - 30
+		if player_rect.intersects(Rect2(sewer_x, sewer_y, 50, 45)):
+			# Allow door area (center of sewer)
+			if pos.x < sewer_x + 10 or pos.x > sewer_x + 40:
+				return true
 		# Rocks collision
 		if Vector2(100, 260).distance_to(pos) < 18:
 			return true
@@ -2920,10 +2924,7 @@ func check_farm_interactions():
 	if quest_stage >= 10 and player_pos.distance_to(radiotower_pos) < 50:
 		interact_radiotower()
 		return
-	if is_nightfall and player_pos.distance_to(tunnel_pos) < 40:
-		enter_tunnel()
-		return
-	
+
 	# Kid NPC (when visible and not walking)
 	if kid_visible and not kid_walking_in and player_pos.distance_to(kid_pos) < 35:
 		interact_kid()
@@ -2974,12 +2975,17 @@ func check_lakeside_interactions():
 		if player_pos.distance_to(npc.pos) < 35:
 			interact_lakeside_npc(npc)
 			return
-	
+
+	# Sewer entrance (during nightfall escape sequence)
+	if is_nightfall and player_pos.distance_to(tunnel_pos) < 40:
+		enter_tunnel()
+		return
+
 	# Secret discovery near rocks
 	if not lakeside_secret_found and player_pos.distance_to(Vector2(310, 275)) < 30:
 		discover_lakeside_secret()
 		return
-	
+
 	# Journal page at lakeside
 	if "lakeside" not in journal_pages_found:
 		var page_pos = journal_page_locations["lakeside"]
@@ -4447,7 +4453,6 @@ func draw_entities_y_sorted():
 			entities.append({"type": "farm_shed", "pos": Vector2(300, 235)})
 			entities.append({"type": "farm_chicken_coop", "pos": Vector2(140, 130)})
 			entities.append({"type": "farm_radiotower", "pos": Vector2(55, 110)})
-			entities.append({"type": "farm_tunnel", "pos": Vector2(425, 295)})  # Base of structure (drawn at 400,250 + height 45)
 			# Tractor if visible
 			if tractor_visible:
 				entities.append({"type": "farm_tractor", "pos": tractor_pos})
@@ -4466,6 +4471,8 @@ func draw_entities_y_sorted():
 		Area.LAKESIDE:
 			# Dock structure
 			entities.append({"type": "lakeside_dock", "pos": Vector2(190, 230)})
+			# Sewer entrance on the cliff
+			entities.append({"type": "lakeside_sewer", "pos": Vector2(tunnel_pos.x, tunnel_pos.y + 30)})
 			# Rocks (as obstacles)
 			entities.append({"type": "lakeside_rock1", "pos": Vector2(100, 260)})
 			entities.append({"type": "lakeside_rock2", "pos": Vector2(300, 280)})
@@ -4511,13 +4518,13 @@ func draw_entities_y_sorted():
 			"farm_shed": draw_shed_sprite(e.pos.x - 25, e.pos.y - 60)
 			"farm_chicken_coop": draw_chicken_coop(chicken_coop_pos.x, chicken_coop_pos.y)
 			"farm_radiotower": draw_radiotower_large(30, 20)
-			"farm_tunnel": draw_tunnel_entrance(tunnel_pos.x - 20, tunnel_pos.y - 30)
 			"farm_tractor": draw_tractor(tractor_pos.x, tractor_pos.y)
 			"farm_patrol": draw_robot_soldier(e.pos)
 			# Cornfield
 			"cornfield_farmhouse": draw_cornfield_farmhouse()
 			# Lakeside
 			"lakeside_dock": draw_lakeside_dock()
+			"lakeside_sewer": draw_tunnel_entrance(tunnel_pos.x - 20, tunnel_pos.y - 30)
 			"lakeside_rock1": draw_circle(Vector2(100, 260), 15, Color(0.5, 0.48, 0.45))
 			"lakeside_rock2": draw_circle(Vector2(300, 280), 20, Color(0.55, 0.5, 0.48))
 			"lakeside_rock3": draw_circle(Vector2(320, 270), 12, Color(0.5, 0.47, 0.43))
