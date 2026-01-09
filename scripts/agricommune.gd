@@ -5297,11 +5297,18 @@ func draw_cornfield_area_background():
 			draw_rect(Rect2(x - 10, y + 5, 10, 1), Color(0.55, 0.75, 0.45))
 			draw_rect(Rect2(x + 4, y + 8, 10, 3), corn_green)
 	
-	# Path through corn
-	draw_rect(Rect2(200, 60, 80, 260), dirt)
-	draw_rect(Rect2(200, 60, 6, 260), dirt_dark)
-	draw_rect(Rect2(274, 60, 6, 260), dirt_dark)
-	draw_rect(Rect2(235, 60, 10, 260), Color(0.75, 0.6, 0.45))
+	# Path through corn - use dirt tiles like farm
+	if tex_dirt_tile:
+		var tile_w = tex_dirt_tile.get_width()
+		var tile_h = tex_dirt_tile.get_height()
+		for ty in range(60, 320, tile_h):
+			for tx in range(200, 280, tile_w):
+				draw_texture(tex_dirt_tile, Vector2(tx, ty))
+	else:
+		draw_rect(Rect2(200, 60, 80, 260), dirt)
+		draw_rect(Rect2(200, 60, 6, 260), dirt_dark)
+		draw_rect(Rect2(274, 60, 6, 260), dirt_dark)
+		draw_rect(Rect2(235, 60, 10, 260), Color(0.75, 0.6, 0.45))
 	# Note: Farmhouse drawn by Y-sorted entity system
 
 func draw_cornfield_area_overlay():
@@ -5403,11 +5410,18 @@ func draw_lakeside_area_background():
 		draw_rect(Rect2(208, 208, 224, 112), sand)
 		draw_rect(Rect2(272, 0, 192, 64), sand)
 
-	# Dirt path from top (farm exit)
-	draw_rect(Rect2(215, 0, 50, 100), dirt_path)
-	draw_rect(Rect2(220, 0, 40, 100), dirt_path_light)
-	draw_circle(Vector2(240, 100), 30, dirt_path)
-	draw_circle(Vector2(230, 120), 25, dirt_path_light)
+	# Dirt path from top (farm exit) - use dirt tiles like farm
+	if tex_dirt_tile:
+		var tile_w = tex_dirt_tile.get_width()
+		var tile_h = tex_dirt_tile.get_height()
+		for ty in range(0, 140, tile_h):
+			for tx in range(200, 264, tile_w):
+				draw_texture(tex_dirt_tile, Vector2(tx, ty))
+	else:
+		draw_rect(Rect2(215, 0, 50, 100), dirt_path)
+		draw_rect(Rect2(220, 0, 40, 100), dirt_path_light)
+		draw_circle(Vector2(240, 100), 30, dirt_path)
+		draw_circle(Vector2(230, 120), 25, dirt_path_light)
 
 	# Rocky outcrop in bottom-right (near sewer) - overlapping tiles
 	if tex_cliff_rock:
@@ -5690,9 +5704,16 @@ func draw_stampede():
 	# Grass field
 	draw_rect(Rect2(0, 150, 480, 70), Color(0.45, 0.65, 0.4))
 	
-	# Ground/arena floor
+	# Ground/arena floor - use dirt tiles like farm path
 	var ground_y = int(stampede_ground_y)
-	draw_rect(Rect2(0, ground_y, 480, 100), Color(0.6, 0.5, 0.38))
+	if tex_dirt_tile:
+		var tile_w = tex_dirt_tile.get_width()
+		var tile_h = tex_dirt_tile.get_height()
+		for ty in range(ground_y, 320, tile_h):
+			for tx in range(0, 480, tile_w):
+				draw_texture(tex_dirt_tile, Vector2(tx, ty))
+	else:
+		draw_rect(Rect2(0, ground_y, 480, 100), Color(0.6, 0.5, 0.38))
 	draw_rect(Rect2(0, ground_y, 480, 4), Color(0.5, 0.4, 0.3))
 	
 	# Fence in background
@@ -5903,8 +5924,8 @@ func draw_stampede_animal_new(animal: Dictionary, offset: Vector2):
 		"chicken":
 			# Use Ninja Adventure chicken sprites (black, brown, white variants)
 			var chicken_tex: Texture2D = null
-			# Pick color based on animal position hash for consistency
-			var color_idx = int(abs(animal.pos.x * 7 + animal.pos.y * 13)) % 3
+			# Use stored color from animal (assigned at spawn)
+			var color_idx = animal.get("color", 0)
 			match color_idx:
 				0: chicken_tex = tex_ninja_chicken_black
 				1: chicken_tex = tex_ninja_chicken_brown

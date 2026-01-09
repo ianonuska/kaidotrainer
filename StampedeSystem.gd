@@ -578,7 +578,8 @@ func spawn_stampede_animal():
 		"max_hp": hp,
 		"hit_flash": 0.0,
 		"defeated": false,
-		"telegraph": false
+		"telegraph": false,
+		"color": randi() % 3  # Fixed color for chickens (0=black, 1=brown, 2=white)
 	})
 
 # ===========================================
