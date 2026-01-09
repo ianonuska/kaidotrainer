@@ -597,6 +597,8 @@ var tex_wooden_house: Texture2D
 var tex_wooden_house_roof: Texture2D
 var tex_wooden_house_walls: Texture2D
 var tex_water_panel: Texture2D
+var tex_cliff_rock: Texture2D
+var tex_lake_sand: Texture2D
 var tex_grass_biome: Texture2D
 var tex_chicken_house: Texture2D
 var tex_shed: Texture2D
@@ -946,6 +948,10 @@ func load_sprites():
 		tex_water_panel = load(TILESET_PATH + "water_panel_sprite.png")
 	if ResourceLoader.exists(TILESET_PATH + "Tilled_Dirt_Wide_v2.png"):
 		tex_tiled_dirt_wide_v2 = load(TILESET_PATH + "Tilled_Dirt_Wide_v2.png")
+	if ResourceLoader.exists(TILESET_PATH + "cliff_rock.png"):
+		tex_cliff_rock = load(TILESET_PATH + "cliff_rock.png")
+	if ResourceLoader.exists(TILESET_PATH + "lake_sand.png"):
+		tex_lake_sand = load(TILESET_PATH + "lake_sand.png")
 	
 	# Load grass biome objects (trees, bushes, etc)
 	if ResourceLoader.exists(OBJECTS_PATH + "Basic Grass Biom things 1.png"):
@@ -5326,13 +5332,9 @@ func draw_cornfield_area():
 
 func draw_lakeside_area_background():
 	# Top-down view of lakeside area with lake on right side
-	var water_deep = Color(0.22, 0.40, 0.58)
-	var water_mid = Color(0.32, 0.52, 0.72)
-	var water_light = Color(0.45, 0.65, 0.82)
-	var sand = Color(0.78, 0.70, 0.55)
-	var sand_wet = Color(0.65, 0.58, 0.45)
+	# Using tileset sprites for water, sand, and rocks
+
 	var grass_base = Color(0.35, 0.55, 0.32)
-	var grass_light = Color(0.42, 0.62, 0.38)
 	var dirt_path = Color(0.55, 0.45, 0.35)
 	var dirt_path_light = Color(0.62, 0.52, 0.42)
 
@@ -5347,62 +5349,77 @@ func draw_lakeside_area_background():
 				var tex = tex_grass_tile if variation == 0 else tex_grass_tile_dark
 				draw_texture_rect(tex, Rect2(x, y, 32, 32), false)
 
-	# Lake shape (organic oval on right side of screen)
-	# Main lake body
-	draw_circle(Vector2(340, 160), 120, water_deep)
-	draw_circle(Vector2(380, 140), 90, water_deep)
-	draw_circle(Vector2(300, 190), 80, water_deep)
-	# Lighter water in center
-	draw_circle(Vector2(345, 155), 85, water_mid)
-	draw_circle(Vector2(370, 145), 60, water_mid)
-	# Light reflections
-	draw_circle(Vector2(350, 140), 40, water_light)
-	draw_circle(Vector2(320, 170), 25, Color(1, 1, 1, 0.15))
+	# Draw lake using water panel sprite or water tiles
+	if tex_water_panel:
+		# Draw large water body using water panel (tiled)
+		# Lake area roughly x: 240-480, y: 40-280
+		for wx in range(240, 480, 32):
+			for wy in range(50, 260, 32):
+				# Check if this tile is within the lake shape
+				var tile_center = Vector2(wx + 16, wy + 16)
+				var in_lake = false
+				if Vector2(340, 160).distance_to(tile_center) < 125:
+					in_lake = true
+				if Vector2(380, 140).distance_to(tile_center) < 95:
+					in_lake = true
+				if Vector2(300, 190).distance_to(tile_center) < 85:
+					in_lake = true
+				if in_lake:
+					# Use animated frame from water texture
+					var frame = int(continuous_timer * 3) % 4
+					var src = Rect2(frame * 16, 0, 16, 16)
+					if tex_water:
+						draw_texture_rect_region(tex_water, Rect2(wx, wy, 32, 32), src)
+					else:
+						draw_texture_rect(tex_water_panel, Rect2(wx, wy, 32, 32), false)
+	else:
+		# Fallback: procedural water
+		var water_deep = Color(0.22, 0.40, 0.58)
+		var water_mid = Color(0.32, 0.52, 0.72)
+		draw_circle(Vector2(340, 160), 120, water_deep)
+		draw_circle(Vector2(380, 140), 90, water_deep)
+		draw_circle(Vector2(300, 190), 80, water_deep)
+		draw_circle(Vector2(345, 155), 85, water_mid)
 
-	# Animated water ripples
-	for i in range(5):
-		var rx = 300 + i * 30 + sin(continuous_timer * 1.5 + i) * 8
-		var ry = 130 + i * 20 + cos(continuous_timer * 1.2 + i * 0.8) * 5
-		draw_circle(Vector2(rx, ry), 3 + sin(continuous_timer * 2 + i) * 1, Color(1, 1, 1, 0.2))
+	# Draw sandy shore using lake_sand tiles
+	if tex_lake_sand:
+		# West shore (near dock)
+		for pos in [Vector2(208, 128), Vector2(192, 160), Vector2(208, 192), Vector2(176, 144), Vector2(176, 176)]:
+			draw_texture_rect(tex_lake_sand, Rect2(pos.x, pos.y, 32, 32), false)
+		# South shore
+		for pos in [Vector2(272, 256), Vector2(304, 256), Vector2(336, 256), Vector2(288, 224), Vector2(256, 240)]:
+			draw_texture_rect(tex_lake_sand, Rect2(pos.x, pos.y, 32, 32), false)
+		# North shore
+		for pos in [Vector2(320, 32), Vector2(352, 32), Vector2(384, 48), Vector2(336, 16)]:
+			draw_texture_rect(tex_lake_sand, Rect2(pos.x, pos.y, 32, 32), false)
+	else:
+		# Fallback: procedural sand
+		var sand = Color(0.78, 0.70, 0.55)
+		draw_circle(Vector2(220, 160), 35, sand)
+		draw_circle(Vector2(210, 130), 25, sand)
+		draw_circle(Vector2(215, 195), 30, sand)
+		draw_circle(Vector2(300, 270), 40, sand)
+		draw_circle(Vector2(340, 45), 30, sand)
 
-	# Sandy shore around lake (drawn as crescents/arcs)
-	# West shore (where dock is)
-	draw_circle(Vector2(220, 160), 35, sand)
-	draw_circle(Vector2(210, 130), 25, sand)
-	draw_circle(Vector2(215, 195), 30, sand)
-	# Wet sand near water
-	draw_circle(Vector2(235, 160), 20, sand_wet)
-	draw_circle(Vector2(230, 140), 15, sand_wet)
-	draw_circle(Vector2(232, 185), 18, sand_wet)
-	# South shore
-	draw_circle(Vector2(300, 270), 40, sand)
-	draw_circle(Vector2(350, 275), 35, sand)
-	draw_circle(Vector2(320, 265), 25, sand_wet)
-	# North shore
-	draw_circle(Vector2(340, 45), 30, sand)
-	draw_circle(Vector2(380, 55), 25, sand)
-
-	# Dirt path from top (farm exit) going down-left
-	# Main vertical path
+	# Dirt path from top (farm exit)
 	draw_rect(Rect2(215, 0, 50, 100), dirt_path)
 	draw_rect(Rect2(220, 0, 40, 100), dirt_path_light)
-	# Path curves toward shore
 	draw_circle(Vector2(240, 100), 30, dirt_path)
 	draw_circle(Vector2(230, 120), 25, dirt_path_light)
 
-	# Rocky outcrop in bottom-right (near sewer)
-	var rock_color = Color(0.48, 0.45, 0.42)
-	var rock_dark = Color(0.38, 0.35, 0.32)
-	draw_circle(Vector2(420, 260), 35, rock_color)
-	draw_circle(Vector2(440, 250), 25, rock_dark)
-	draw_circle(Vector2(400, 275), 20, rock_color)
-	draw_circle(Vector2(455, 270), 18, rock_dark)
-
-	# Grass patches for variety
-	draw_circle(Vector2(60, 80), 25, grass_light)
-	draw_circle(Vector2(100, 250), 30, grass_light)
-	draw_circle(Vector2(150, 290), 20, grass_light)
-	draw_circle(Vector2(50, 180), 22, grass_light)
+	# Rocky outcrop in bottom-right (near sewer) using cliff_rock tiles
+	if tex_cliff_rock:
+		# Draw cliff rock tiles in the rocky outcrop area
+		for pos in [Vector2(400, 240), Vector2(432, 240), Vector2(416, 272), Vector2(448, 256), Vector2(384, 256), Vector2(432, 288), Vector2(400, 288)]:
+			draw_texture_rect(tex_cliff_rock, Rect2(pos.x, pos.y, 32, 32), false)
+	else:
+		# Fallback: procedural rocks
+		var rock_color = Color(0.48, 0.45, 0.42)
+		var rock_dark = Color(0.38, 0.35, 0.32)
+		draw_circle(Vector2(420, 260), 35, rock_color)
+		draw_circle(Vector2(440, 250), 25, rock_dark)
+		draw_circle(Vector2(400, 275), 20, rock_color)
+		draw_circle(Vector2(455, 270), 18, rock_dark)
 
 	# Note: Dock, rocks, trees, sewer drawn by Y-sorted entity system
 
