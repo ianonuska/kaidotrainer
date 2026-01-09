@@ -269,9 +269,9 @@ var building_collisions: Array = [
 	# Chicken coop: drawn at (120, 90), body larger by 20%
 	Rect2(120, 100, 48, 36),    # Chicken coop body
 	# Tunnel entrance: drawn at (tunnel_pos.x - 20, tunnel_pos.y - 30) = (400, 250)
-	# Main structure is 50x45, plus sign post to the left
-	Rect2(400, 250, 50, 45),    # Tunnel entrance archway
-	Rect2(355, 255, 40, 42),    # Tunnel sign post area
+	# Main structure is 50x45, sign post now on the right side
+	Rect2(400, 260, 50, 35),    # Tunnel entrance archway (adjusted to not block approach)
+	Rect2(455, 260, 40, 35),    # Tunnel sign post area (moved to right side)
 
 	# Irrigation system: control panel at (70, 210, 35, 30), pipes extending right
 		 # Irrigation control panel
