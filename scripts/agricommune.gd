@@ -5381,25 +5381,26 @@ func draw_lakeside_area_background():
 		draw_circle(Vector2(300, 190), 80, water_deep)
 		draw_circle(Vector2(345, 155), 85, water_mid)
 
-	# Draw sandy shore using lake_sand tiles
+	# Draw sandy shore using lake_sand tiles - dense coverage
 	if tex_lake_sand:
-		# West shore (near dock)
-		for pos in [Vector2(208, 128), Vector2(192, 160), Vector2(208, 192), Vector2(176, 144), Vector2(176, 176)]:
-			draw_texture_rect(tex_lake_sand, Rect2(pos.x, pos.y, 32, 32), false)
-		# South shore
-		for pos in [Vector2(272, 256), Vector2(304, 256), Vector2(336, 256), Vector2(288, 224), Vector2(256, 240)]:
-			draw_texture_rect(tex_lake_sand, Rect2(pos.x, pos.y, 32, 32), false)
-		# North shore
-		for pos in [Vector2(320, 32), Vector2(352, 32), Vector2(384, 48), Vector2(336, 16)]:
-			draw_texture_rect(tex_lake_sand, Rect2(pos.x, pos.y, 32, 32), false)
+		# West shore (near dock) - full grid coverage
+		for sx in range(160, 256, 32):
+			for sy in range(96, 224, 32):
+				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
+		# South shore - full grid coverage
+		for sx in range(224, 416, 32):
+			for sy in range(224, 320, 32):
+				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
+		# North shore - full grid coverage
+		for sx in range(288, 448, 32):
+			for sy in range(0, 64, 32):
+				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
 	else:
 		# Fallback: procedural sand
 		var sand = Color(0.78, 0.70, 0.55)
-		draw_circle(Vector2(220, 160), 35, sand)
-		draw_circle(Vector2(210, 130), 25, sand)
-		draw_circle(Vector2(215, 195), 30, sand)
-		draw_circle(Vector2(300, 270), 40, sand)
-		draw_circle(Vector2(340, 45), 30, sand)
+		draw_rect(Rect2(160, 96, 96, 128), sand)
+		draw_rect(Rect2(224, 224, 192, 96), sand)
+		draw_rect(Rect2(288, 0, 160, 64), sand)
 
 	# Dirt path from top (farm exit)
 	draw_rect(Rect2(215, 0, 50, 100), dirt_path)
@@ -5407,19 +5408,15 @@ func draw_lakeside_area_background():
 	draw_circle(Vector2(240, 100), 30, dirt_path)
 	draw_circle(Vector2(230, 120), 25, dirt_path_light)
 
-	# Rocky outcrop in bottom-right (near sewer) using cliff_rock tiles
+	# Rocky outcrop in bottom-right (near sewer) - dense grid coverage
 	if tex_cliff_rock:
-		# Draw cliff rock tiles in the rocky outcrop area
-		for pos in [Vector2(400, 240), Vector2(432, 240), Vector2(416, 272), Vector2(448, 256), Vector2(384, 256), Vector2(432, 288), Vector2(400, 288)]:
-			draw_texture_rect(tex_cliff_rock, Rect2(pos.x, pos.y, 32, 32), false)
+		for rx in range(368, 480, 32):
+			for ry in range(224, 320, 32):
+				draw_texture_rect(tex_cliff_rock, Rect2(rx, ry, 32, 32), false)
 	else:
 		# Fallback: procedural rocks
 		var rock_color = Color(0.48, 0.45, 0.42)
-		var rock_dark = Color(0.38, 0.35, 0.32)
-		draw_circle(Vector2(420, 260), 35, rock_color)
-		draw_circle(Vector2(440, 250), 25, rock_dark)
-		draw_circle(Vector2(400, 275), 20, rock_color)
-		draw_circle(Vector2(455, 270), 18, rock_dark)
+		draw_rect(Rect2(368, 224, 112, 96), rock_color)
 
 	# Note: Dock, rocks, trees, sewer drawn by Y-sorted entity system
 
