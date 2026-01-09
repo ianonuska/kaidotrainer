@@ -150,7 +150,8 @@ SpriteSheet.png::CompressedTexture2D::9088029739581700097::1616091558::176733949
 ::res://Ninja Adventure - Asset Pack/Actor/Animals/CatCyclop/::1767339493
 Faceset.png::CompressedTexture2D::4718808451730343116::1708546174::1767339493::1::::<><><>0<>0<>e7b0e9edb4814417d271ffa064a34d82<>res://.godot/imported/Faceset.png-34a93182a507ac1833a008016db1720e.ctex::
 SpriteSheet.png::CompressedTexture2D::7159838869739236304::1708546188::1767339493::1::::<><><>0<>0<>de31c6df606954d7897ef9622f12159d<>res://.godot/imported/SpriteSheet.png-a0f67e34ec8e7a622524832392eee21a.ctex::
-::res://Ninja Adventure - Asset Pack/Actor/Animals/Chicken/::1767339493
+::res://Ninja Adventure - Asset Pack/Actor/Animals/Chicken/::1767917433
+dirt_tile.png::CompressedTexture2D::7099340291896146659::1767917421::1767917433::1::::<><><>0<>0<>28115a1e4e2f4e152fec15cd22539e42<>res://.godot/imported/dirt_tile.png-b6c3528f1b87de4b50ea49ba0f87a7ad.ctex::
 FacesetBlack.png::CompressedTexture2D::8156494733551118958::1659297070::1767339493::1::::<><><>0<>0<>312129a3898221ad7e3e7dc651607f4e<>res://.godot/imported/FacesetBlack.png-62d60ab2936daa1106cca63b71aea42d.ctex::
 FacesetBrown.png::CompressedTexture2D::6912260391686863230::1659297176::1767339493::1::::<><><>0<>0<>5785d4b24f39c90c93e73826e002fc3c<>res://.godot/imported/FacesetBrown.png-1180e735c5e4d0066b03b6f7de8be23f.ctex::
 FacesetCute.png::CompressedTexture2D::2702174323670928113::1659297290::1767339493::1::::<><><>0<>0<>c9e6ccb07924a598edc9c683bb4cb312<>res://.godot/imported/FacesetCute.png-615faf3a2d4f07e6dc484ed619cdcb63.ctex::
@@ -2616,9 +2617,9 @@ south.png::CompressedTexture2D::2765653575711965133::1767840826::1767823431::1::
 west.png::CompressedTexture2D::4950548782970019020::1767840826::1767823431::1::::<><><>0<>0<>deb1021ea96d903ba90cd588da101f57<>res://.godot/imported/west.png-d84bf98c14c5095e3c9363c9f9ad78c4.ctex::
 ::res://scenes/::1767906805
 agricommune.tscn::PackedScene::8789876156870967695::1767906805::0::1::::<><><>0<>0<><>::uid://c8op4ayef0hl3::::res://scripts/agricommune.gd
-::res://scripts/::1767916657
+::res://scripts/::1767917055
 agricommune copy-11000linesofcode.gd::GDScript::2362289233662191766::1767586891::0::1::::<>Node2D<><>0<>0<><>::
-agricommune.gd::GDScript::7118937076177567046::1767916657::0::1::::<>Node2D<><>0<>0<><>::
+agricommune.gd::GDScript::7118937076177567046::1767917055::0::1::::<>Node2D<><>0<>0<><>::
 AreaDrawing.gd::GDScript::1775356581325495835::1767596189::0::1::::<>RefCounted<><>0<>0<><>::
 ::res://Sprout Lands - Sprites - Basic pack/::1767845510
 read_me.txt::TextFile::-1::1719885670::0::1::::<><><>0<>0<><>::
@@ -2686,11 +2687,11 @@ schematic_series_leds.png::CompressedTexture2D::7968819087074628919::1767726477:
 ::res://Sprout Lands - Sprites - Basic pack/Sprout Lands color pallet/::1767331885
 Sprout Lands defautlt palette snip.PNG::CompressedTexture2D::4048715327034707683::1689739358::1767331885::1::::<><><>0<>0<>6df01300c57847a71758548b51fb7f72<>res://.godot/imported/Sprout Lands defautlt palette snip.PNG-be9fcab7ac461807b6d8034935b29921.ctex::
 Sprout Lands defautlt palette.png::CompressedTexture2D::7240500356492038571::1689739286::1767331885::1::::<><><>0<>0<>00c5dd6e955b40063eaf6522a31edc75<>res://.godot/imported/Sprout Lands defautlt palette.png-988bcd1819d06e4e6e29269896390f5c.ctex::
-::res://Sprout Lands - Sprites - Basic pack/Tilesets/::1767916931
+::res://Sprout Lands - Sprites - Basic pack/Tilesets/::1767917490
 2070D138-BE3A-4FA7-A2F1-29E95131EFAB.PNG::CompressedTexture2D::4640609110206527849::1767670939::1767671780::1::::<><><>0<>0<>89cabdc475ee7cf7f8ad7fee96262a33<>res://.godot/imported/2070D138-BE3A-4FA7-A2F1-29E95131EFAB.PNG-f56cf0804c0c078dcdca5eea8be8820f.ctex::
 Bitmask references 1.png::CompressedTexture2D::4305567785781590409::1702912542::1767331885::1::::<><><>0<>0<>36c8c11a782c1f7a206ded9138b23d78<>res://.godot/imported/Bitmask references 1.png-1fbe43bac6f21de820179f4d6fe069df.ctex::
 Bitmask references 2.png::CompressedTexture2D::1756064446271583418::1702912546::1767331885::1::::<><><>0<>0<>3c4b5745f75dd2bbb3f981bda85d93a8<>res://.godot/imported/Bitmask references 2.png-657a376a65214e93b5b4e70c1cc32dfe.ctex::
-dirt_tile.png::CompressedTexture2D::4527979116172721259::1767916925::1767916961::1::::<><><>0<>0<>e19fc86cfa4a6f12eb34416bffe24a7e<>res://.godot/imported/dirt_tile.png-611ebc21b465f85119a0278de46eb68b.ctex::
+dirt_tile.png::CompressedTexture2D::9098473536413089908::1767917483::1767917495::1::::<><><>0<>0<>8d3b1d83d1e82eeace1823543dd428b9<>res://.godot/imported/dirt_tile.png-611ebc21b465f85119a0278de46eb68b.ctex::
 Doors.png::CompressedTexture2D::1773033216909038541::1721584366::1767331885::1::::<><><>0<>0<>6cd3468a3473bade10f662ff7d7ffcf6<>res://.godot/imported/Doors.png-6238556af1b121a1dbb3812e916dab51.ctex::
 Fences.png::CompressedTexture2D::3692768885920375786::1640175332::1767331885::1::::<><><>0<>0<>7142aa686d0ee6232c2db4a8ecf07d94<>res://.godot/imported/Fences.png-56759b1dede644b9211778dfdb3c424f.ctex::
 Grass.png::CompressedTexture2D::6145628389845599597::1702927252::1767331885::1::::<><><>0<>0<>8cc0ff92eb686ebbfb08b47a3bfd803c<>res://.godot/imported/Grass.png-9471cfd9941c76549d260ff73d519620.ctex::

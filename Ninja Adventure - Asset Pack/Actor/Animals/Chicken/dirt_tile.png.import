@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d2vmsaq40g0i7"
-path="res://.godot/imported/dirt_tile.png-611ebc21b465f85119a0278de46eb68b.ctex"
+uid="uid://c8e8dktpv61pv"
+path="res://.godot/imported/dirt_tile.png-b6c3528f1b87de4b50ea49ba0f87a7ad.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Sprout Lands - Sprites - Basic pack/Tilesets/dirt_tile.png"
-dest_files=["res://.godot/imported/dirt_tile.png-611ebc21b465f85119a0278de46eb68b.ctex"]
+source_file="res://Ninja Adventure - Asset Pack/Actor/Animals/Chicken/dirt_tile.png"
+dest_files=["res://.godot/imported/dirt_tile.png-b6c3528f1b87de4b50ea49ba0f87a7ad.ctex"]
 
 [params]
 

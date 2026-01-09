@@ -4563,39 +4563,39 @@ func draw_road_sign(x: float, y: float, text: String, arrow_right: bool):
 	var wood = Color(0.55, 0.4, 0.3)
 	var wood_dark = Color(0.4, 0.3, 0.22)
 	var outline = Color(0.0, 0.0, 0.0)
-	
+
 	# Post
 	draw_rect(Rect2(x + 10, y + 12, 5, 20), outline)
 	draw_rect(Rect2(x + 11, y + 13, 3, 18), wood_dark)
-	
-	# Sign board - tight padding
-	var sign_w = text.length() * 6
+
+	# Sign board - minimal padding
+	var sign_w = text.length() * 5 + 4
 	draw_rect(Rect2(x - 1, y - 1, sign_w + 2, 14), outline)
 	draw_rect(Rect2(x, y, sign_w, 12), wood)
 	draw_rect(Rect2(x + 1, y + 1, sign_w - 2, 10), Color(0.62, 0.48, 0.36))
-	
+
 	# Text
-	draw_string(ThemeDB.fallback_font, Vector2(x + 1, y + 10), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.15, 0.1))
+	draw_string(ThemeDB.fallback_font, Vector2(x + 2, y + 10), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.15, 0.1))
 
 func draw_road_sign_vertical(x: float, y: float, text: String, arrow_up: bool):
 	var wood = Color(0.55, 0.4, 0.3)
 	var wood_dark = Color(0.4, 0.3, 0.22)
 	var outline = Color(0.0, 0.0, 0.0)
-	
+
 	# Post - at bottom of sign
 	var post_y = y + 12
 	draw_rect(Rect2(x + 14, post_y, 5, 18), outline)
 	draw_rect(Rect2(x + 15, post_y + 1, 3, 16), wood_dark)
-	
-	# Sign board - tight padding
+
+	# Sign board - minimal padding
 	var arrow_text = "^ " + text if arrow_up else "v " + text
-	var sign_w = arrow_text.length() * 6
+	var sign_w = arrow_text.length() * 5 + 4
 	draw_rect(Rect2(x - 1, y - 1, sign_w + 2, 14), outline)
 	draw_rect(Rect2(x, y, sign_w, 12), wood)
 	draw_rect(Rect2(x + 1, y + 1, sign_w - 2, 10), Color(0.62, 0.48, 0.36))
-	
+
 	# Text
-	draw_string(ThemeDB.fallback_font, Vector2(x + 1, y + 10), arrow_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.15, 0.1))
+	draw_string(ThemeDB.fallback_font, Vector2(x + 2, y + 10), arrow_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.15, 0.1))
 
 func draw_ground_tiles():
 	# Use Sprout Lands grass_tile.png - simple solid grass texture
