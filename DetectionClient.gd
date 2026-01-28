@@ -47,6 +47,11 @@ func _ready() -> void:
 	_socket = StreamPeerTCP.new()
 
 func _process(_delta: float) -> void:
+	# Check if we're still trying to connect
+	if _connecting:
+		_check_connection()
+		return
+
 	if not _connected:
 		return
 
@@ -81,33 +86,55 @@ func connect_to_server(server_host: String = "localhost", server_port: int = 987
 	"""Connect to the detection server."""
 	host = server_host
 	port = server_port
+	print("[DetectionClient] Connecting to ", host, ":", port)
 
 	var err = _socket.connect_to_host(host, port)
 	if err != OK:
+		print("[DetectionClient] Failed to initiate: ", err)
 		connection_failed.emit("Failed to initiate connection: " + str(err))
 		return
 
-	# Wait for connection (non-blocking check in _process)
-	_wait_for_connection()
+	# Start polling for connection in _process instead of blocking
+	_connecting = true
+	_connect_attempts = 0
 
-func _wait_for_connection() -> void:
-	"""Wait for TCP connection to complete."""
-	# Poll until connected or failed
-	for i in range(50):  # 5 second timeout
-		_socket.poll()
-		var status = _socket.get_status()
+var _connecting: bool = false
+var _connect_attempts: int = 0
+const MAX_CONNECT_ATTEMPTS: int = 50  # 5 seconds at 10 checks/sec
 
-		if status == StreamPeerTCP.STATUS_CONNECTED:
-			_connected = true
-			connected.emit()
-			return
-		elif status == StreamPeerTCP.STATUS_ERROR:
-			connection_failed.emit("Connection error")
-			return
+func _check_connection() -> void:
+	"""Check connection status (called from _process)."""
+	if not _connecting:
+		return
 
-		await get_tree().create_timer(0.1).timeout
+	_socket.poll()
+	var status = _socket.get_status()
 
-	connection_failed.emit("Connection timeout")
+	# Debug: print status every 10 attempts
+	if _connect_attempts % 10 == 0:
+		print("[DetectionClient] Status: ", status, " (attempt ", _connect_attempts, ")")
+
+	if status == StreamPeerTCP.STATUS_CONNECTED:
+		_connecting = false
+		_connected = true
+		print("[DetectionClient] Connected!")
+		connected.emit()
+	elif status == StreamPeerTCP.STATUS_ERROR:
+		_connecting = false
+		print("[DetectionClient] Connection error (status=", status, ")")
+		connection_failed.emit("Connection error")
+	elif status == StreamPeerTCP.STATUS_NONE:
+		# Socket was reset or never started - this is an error
+		_connecting = false
+		print("[DetectionClient] Connection failed - socket reset")
+		connection_failed.emit("Connection reset")
+	else:
+		# STATUS_CONNECTING - keep waiting
+		_connect_attempts += 1
+		if _connect_attempts >= MAX_CONNECT_ATTEMPTS:
+			_connecting = false
+			print("[DetectionClient] Connection timeout after ", _connect_attempts, " attempts")
+			connection_failed.emit("Connection timeout")
 
 func disconnect_from_server() -> void:
 	"""Disconnect from the server."""

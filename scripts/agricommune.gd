@@ -1653,7 +1653,8 @@ func init_detection_client():
 	# Try to connect to the detection server
 	# On Pi, the server runs as a systemd service
 	# On desktop, can run manually for testing
-	detection_client.connect_to_server("localhost", 9876)
+	# Use 127.0.0.1 instead of localhost to avoid DNS resolution issues
+	detection_client.connect_to_server("127.0.0.1", 9876)
 	print("[DetectionClient] Attempting connection to detection server...")
 
 func _on_detection_connected():
@@ -11360,20 +11361,21 @@ func draw_build_screen_overlay():
 	var status_y = panel_y + 15
 
 	# Title
-	draw_string(get_theme_default_font(), Vector2(status_x, status_y), "BUILD MODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 1.0))
+	var default_font = ThemeDB.fallback_font
+	draw_string(default_font, Vector2(status_x, status_y), "BUILD MODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 1.0))
 
 	# Instructions
 	status_y += 20
 	if detection_connected:
-		draw_string(get_theme_default_font(), Vector2(status_x, status_y), "Build the circuit on your breadboard.", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.7, 0.8))
+		draw_string(default_font, Vector2(status_x, status_y), "Build the circuit on your breadboard.", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.7, 0.8))
 	else:
-		draw_string(get_theme_default_font(), Vector2(status_x, status_y), "(Demo mode - no camera detected)", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6, 0.6, 0.6))
+		draw_string(default_font, Vector2(status_x, status_y), "(Demo mode - no camera detected)", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6, 0.6, 0.6))
 
 	# Attempt counter (if any attempts made)
 	if build_attempt_count > 0:
 		status_y += 16
 		var attempt_text = "Attempts: " + str(build_attempt_count)
-		draw_string(get_theme_default_font(), Vector2(status_x, status_y), attempt_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.8, 0.7, 0.5))
+		draw_string(default_font, Vector2(status_x, status_y), attempt_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.8, 0.7, 0.5))
 
 	# Button prompt on right side
 	var btn_x = SCREEN_WIDTH - 150
@@ -11383,13 +11385,13 @@ func draw_build_screen_overlay():
 	if build_check_cooldown > 0:
 		# Cooldown active - show grayed out
 		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.3, 0.3, 0.35))
-		draw_string(get_theme_default_font(), Vector2(btn_x + 6, btn_y + 17), "Y", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.5))
-		draw_string(get_theme_default_font(), Vector2(btn_x + 32, btn_y + 17), "Checking...", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.5))
+		draw_string(default_font, Vector2(btn_x + 6, btn_y + 17), "Y", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.5))
+		draw_string(default_font, Vector2(btn_x + 32, btn_y + 17), "Checking...", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.5))
 	elif detection_pending:
 		# Detection in progress
 		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.3, 0.5, 0.6))
-		draw_string(get_theme_default_font(), Vector2(btn_x + 6, btn_y + 17), "Y", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.8, 0.8, 0.8))
-		draw_string(get_theme_default_font(), Vector2(btn_x + 32, btn_y + 17), "Scanning...", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.9, 1.0))
+		draw_string(default_font, Vector2(btn_x + 6, btn_y + 17), "Y", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.8, 0.8, 0.8))
+		draw_string(default_font, Vector2(btn_x + 32, btn_y + 17), "Scanning...", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.9, 1.0))
 	else:
 		# Ready to check
 		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.2, 0.5, 0.3))
@@ -11400,11 +11402,11 @@ func draw_build_screen_overlay():
 			Vector2(tri_center.x - 7, tri_center.y + 5),
 			Vector2(tri_center.x + 7, tri_center.y + 5)
 		]), Color(0.7, 1.0, 0.7))
-		draw_string(get_theme_default_font(), Vector2(btn_x + 32, btn_y + 17), "Check Circuit", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 1.0, 0.9))
+		draw_string(default_font, Vector2(btn_x + 32, btn_y + 17), "Check Circuit", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 1.0, 0.9))
 
 	# Secondary button hints
 	btn_y += 30
-	draw_string(get_theme_default_font(), Vector2(btn_x, btn_y + 10), "(or press T on keyboard)", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5, 0.5, 0.6))
+	draw_string(default_font, Vector2(btn_x, btn_y + 10), "(or press T on keyboard)", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5, 0.5, 0.6))
 
 func draw_breadboard_schematic(x: float, y: float, circuit: String):
 	var tex: Texture2D = null
