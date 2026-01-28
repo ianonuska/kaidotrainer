@@ -1843,17 +1843,13 @@ func check_circuit():
 		return  # Cooldown active
 
 	detection_pending = true
-	build_check_cooldown = 1.0  # 1 second cooldown
+	build_check_cooldown = 0.5  # Short cooldown
 	build_attempt_count += 1
 
 	# Send expected circuit to server for comparison
 	detection_client.compare(expected_circuit)
 
-	# Show checking feedback
-	dialogue_queue = [
-		{"speaker": "kaido", "text": "Let me check your circuit..."}
-	]
-	next_dialogue()
+	# Hint will be shown on BUILD_SCREEN - no dialogue popup needed
 
 func on_circuit_build_success():
 	"""Called when circuit is verified correct."""
@@ -1869,32 +1865,29 @@ func on_circuit_build_success():
 	detection_errors = []
 
 func on_circuit_build_hint():
-	"""Called when circuit has errors - show pedagogical hint."""
-	var hint_dialogue = []
-
-	# Kaido gives hint based on attempt count (Sherlock 2 ITS escalation)
+	"""Called when circuit has errors - update hint shown on BUILD_SCREEN."""
+	# Update detection_hint based on attempt count (Sherlock 2 ITS escalation)
+	# The BUILD_SCREEN will display this automatically
 	if build_attempt_count == 1:
 		# First attempt - gentle nudge
-		hint_dialogue = [
-			{"speaker": "kaido", "text": "Hmm, something's not quite right..."},
-			{"speaker": "kaido", "text": detection_hint if detection_hint else "Check your connections carefully."},
-		]
+		if detection_hint == "":
+			detection_hint = "Hmm, something's not quite right... Check your connections carefully."
+		else:
+			detection_hint = "Hmm... " + detection_hint
 	elif build_attempt_count == 2:
 		# Second attempt - more specific
-		hint_dialogue = [
-			{"speaker": "kaido", "text": "Getting closer! But..."},
-			{"speaker": "kaido", "text": detection_hint if detection_hint else "Make sure each component is in the right place."},
-		]
+		if detection_hint == "":
+			detection_hint = "Getting closer! Make sure each component is in the right place."
+		else:
+			detection_hint = "Almost there! " + detection_hint
 	else:
 		# Third+ attempt - direct guidance
-		hint_dialogue = [
-			{"speaker": "kaido", "text": "Let me help you out..."},
-			{"speaker": "kaido", "text": detection_hint if detection_hint else "Check the schematic again - I'll highlight the issue."},
-		]
-		# Could show schematic with error highlighted here
+		if detection_hint == "":
+			detection_hint = "Let me help... Check the schematic again carefully."
+		else:
+			detection_hint = "Here's a tip: " + detection_hint
 
-	dialogue_queue = hint_dialogue
-	next_dialogue()
+	# Stay in BUILD_SCREEN mode - no dialogue popup
 
 func get_circuit_success_dialogue(circuit_id: String) -> Array:
 	"""Get success dialogue for a specific circuit."""
@@ -6117,10 +6110,8 @@ func close_schematic():
 	# If detection server connected, enter BUILD_SCREEN for real circuit checking
 	if detection_connected:
 		current_mode = GameMode.BUILD_SCREEN
-		# Show build hints
-		var hints = get_circuit_build_hints(current_schematic)
-		dialogue_queue = hints
-		next_dialogue()
+		detection_hint = ""  # Clear any previous hint
+		# BUILD_SCREEN will show tips automatically - no dialogue needed
 		return
 
 	# Demo mode (no detection server) - auto-succeed with normal flow
@@ -7372,8 +7363,7 @@ func _draw():
 		GameMode.PHOTOGRAPH:
 			draw_photograph_reveal()
 		GameMode.BUILD_SCREEN:
-			draw_exploration()
-			draw_build_screen_overlay()
+			draw_build_screen_overlay()  # Fullscreen - no exploration underneath
 		GameMode.SCHEMATIC_POPUP:
 			draw_exploration()
 			draw_schematic_popup()
