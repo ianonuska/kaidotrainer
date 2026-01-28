@@ -35,11 +35,12 @@ const SCREEN_HEIGHT = 320
 const GAME_ZOOM = 2.0  # 2x zoom for Stardew Valley-like scale
 
 # Game modes
-enum GameMode { 
-	INTRO, 
-	EXPLORATION, 
-	SHED_INTERIOR, 
-	PHOTOGRAPH, 
+enum GameMode {
+	TITLE_SCREEN,       # Starting title screen
+	INTRO,
+	EXPLORATION,
+	SHED_INTERIOR,
+	PHOTOGRAPH,
 	BUILD_SCREEN,
 	SCHEMATIC_POPUP,
 	BACKPACK_POPUP,
@@ -54,9 +55,13 @@ enum GameMode {
 	SHOP_INTERIOR,      # Town shop interior
 	TOWNHALL_INTERIOR,  # Town hall interior
 	BAKERY_INTERIOR,    # Bakery interior
-	PAUSE_MENU          # Workbench pause menu
+	PAUSE_MENU,         # Workbench pause menu
+	MAP_VIEW,           # World map view
+	FEEDBACK_SCREEN     # End-of-demo feedback
 }
-var current_mode: GameMode = GameMode.INTRO
+var current_mode: GameMode = GameMode.TITLE_SCREEN
+var previous_mode: GameMode = GameMode.TITLE_SCREEN  # For music change detection
+var title_blink_timer: float = 0.0  # For "Press Start" blinking
 
 # Current area within Agricommune region
 enum Area { FARM, CORNFIELD, LAKESIDE, TOWN_CENTER }
@@ -66,9 +71,207 @@ var intro_char_index: int = 0
 
 # Pause menu state
 var pause_menu_selection: int = 0
-var pause_menu_options: Array = ["Resume", "Journal", "Settings", "Quit"]
+var pause_menu_options: Array = ["Resume", "Map", "Components", "Journal", "Quit"]
 var pause_previous_mode: GameMode = GameMode.EXPLORATION
 var pause_kaido_bob: float = 0.0
+var pause_menu_nav_cooldown: float = 0.0  # Cooldown for joystick navigation
+
+# Component panel state (accessed from pause menu)
+var component_panel_active: bool = false
+var component_selected: int = 0
+var component_info_scroll: int = 0  # Which line of info we're showing
+var component_nav_cooldown: float = 0.0
+
+# Component encyclopedia data
+var component_data: Array = [
+	{
+		"name": "LED",
+		"full_name": "Light Emitting Diode",
+		"color": Color(1.0, 0.3, 0.3),
+		"info": [
+			"A tiny light that glows when electricity flows through it.",
+			"LEDs have two legs: the longer leg is positive (+),",
+			"the shorter leg is negative (-). Getting this backwards",
+			"won't break it, but it won't light up either!",
+			"",
+			"LEDs are everywhere: traffic lights, TV remotes, phone",
+			"screens, car headlights, and holiday decorations.",
+			"They use very little power and last for years.",
+			"",
+			"Always use a resistor with LEDs to limit current,",
+			"or they can burn out from too much electricity."
+		]
+	},
+	{
+		"name": "Resistor",
+		"full_name": "Resistor",
+		"color": Color(0.7, 0.55, 0.4),
+		"info": [
+			"Resistors slow down the flow of electricity, like a",
+			"speed bump for electrons. The colored bands tell you",
+			"how much resistance it has (measured in Ohms).",
+			"",
+			"Without resistors, LEDs would get too much current",
+			"and burn out instantly. Resistors protect components",
+			"by limiting how much electricity can flow.",
+			"",
+			"Common values: 330 ohm (for LEDs), 10k ohm (for sensors).",
+			"Unlike LEDs, resistors work in either direction -",
+			"there's no positive or negative side."
+		]
+	},
+	{
+		"name": "Buzzer",
+		"full_name": "Piezo Buzzer",
+		"color": Color(0.2, 0.2, 0.2),
+		"info": [
+			"A small speaker that makes beeping sounds when powered.",
+			"Inside is a special crystal that vibrates when",
+			"electricity passes through it, creating sound waves.",
+			"",
+			"Buzzers are used for alarms, timers, doorbells, and",
+			"the beeps you hear when pressing microwave buttons.",
+			"Some buzzers play a single tone, others can play music!",
+			"",
+			"Most buzzers have a (+) marked on top - connect that",
+			"to the positive side of your circuit."
+		]
+	},
+	{
+		"name": "Push Button",
+		"full_name": "Momentary Push Button",
+		"color": Color(0.3, 0.3, 0.8),
+		"info": [
+			"A switch that connects the circuit only while you're",
+			"pressing it. Let go and the circuit breaks again.",
+			"",
+			"Buttons have 4 pins but work in pairs - the two pins",
+			"on each side are already connected to each other.",
+			"When you press the button, all 4 pins connect.",
+			"",
+			"Used in: video game controllers, keyboards, doorbells,",
+			"elevator buttons, TV remotes, and vending machines.",
+			"",
+			"The 'click' you feel is a tiny spring inside!"
+		]
+	},
+	{
+		"name": "Slide Switch",
+		"full_name": "Sliding Switch",
+		"color": Color(0.5, 0.5, 0.5),
+		"info": [
+			"A switch that stays ON or OFF until you slide it again.",
+			"Unlike push buttons, these 'latch' in position.",
+			"",
+			"Has 3 pins: the middle pin connects to whichever side",
+			"you slide the switch toward. Great for ON/OFF controls.",
+			"",
+			"Used in: flashlights, toys, power strips, and guitar",
+			"pedals. The physical slider makes it easy to see",
+			"whether something is on or off at a glance.",
+			"",
+			"Two slide switches together can make an AND gate!"
+		]
+	},
+	{
+		"name": "Potentiometer",
+		"full_name": "Potentiometer (Variable Resistor)",
+		"color": Color(0.4, 0.6, 0.8),
+		"info": [
+			"A resistor with a knob! Turning the knob changes how",
+			"much the electricity is slowed down. This lets you",
+			"smoothly adjust things like brightness or volume.",
+			"",
+			"Has 3 pins: power goes to the outer pins, and the",
+			"middle pin gives you a variable output voltage.",
+			"",
+			"Used in: volume knobs on speakers, dimmer switches",
+			"for lights, fan speed controls, and joysticks.",
+			"",
+			"The word comes from 'potential' (voltage) + 'meter'."
+		]
+	},
+	{
+		"name": "Photoresistor",
+		"full_name": "Photoresistor (Light Sensor)",
+		"color": Color(0.9, 0.7, 0.3),
+		"info": [
+			"A resistor that changes based on how much light hits it!",
+			"Bright light = low resistance (electricity flows easy).",
+			"Darkness = high resistance (electricity slows down).",
+			"",
+			"The squiggly pattern on top is made of a material",
+			"called cadmium sulfide that reacts to light.",
+			"",
+			"Used in: automatic night lights, camera light meters,",
+			"street lights that turn on at dusk, and solar garden",
+			"lights. Also called LDR (Light Dependent Resistor).",
+			"",
+			"Works in either direction - no positive or negative."
+		]
+	},
+	{
+		"name": "Diode",
+		"full_name": "Diode",
+		"color": Color(0.1, 0.1, 0.1),
+		"info": [
+			"A one-way valve for electricity! Current can only flow",
+			"in one direction through a diode. The stripe marks",
+			"the side where current flows OUT (cathode/negative).",
+			"",
+			"If you connect it backwards, no current flows at all.",
+			"This makes diodes perfect for protecting circuits",
+			"and building logic gates (OR gates use 2 diodes).",
+			"",
+			"LEDs are actually diodes that glow! The 'D' in LED",
+			"stands for Diode. Regular diodes don't produce light.",
+			"",
+			"Used in: power supplies, battery chargers, radios."
+		]
+	},
+	{
+		"name": "Jumper Wires",
+		"full_name": "Jumper Wires",
+		"color": Color(0.9, 0.2, 0.2),
+		"info": [
+			"Flexible wires with pins on each end that connect",
+			"components on a breadboard. The pins slide into the",
+			"breadboard holes to make connections.",
+			"",
+			"Colors don't affect how they work, but smart builders",
+			"use red for positive (+) and black for negative (-)",
+			"to keep circuits organized and easy to debug.",
+			"",
+			"Comes in 3 types: male-male (pin to pin), female-female",
+			"(socket to socket), and male-female (pin to socket).",
+			"",
+			"Tip: Keep wires short and flat for neat circuits!"
+		]
+	},
+	{
+		"name": "Breadboard",
+		"full_name": "Solderless Breadboard",
+		"color": Color(0.95, 0.95, 0.9),
+		"info": [
+			"A plastic board with holes for building circuits without",
+			"soldering. Components and wires push into the holes",
+			"and metal strips underneath connect them.",
+			"",
+			"The holes are connected in rows (for components) and",
+			"long columns on the sides (for power rails).",
+			"Red stripe = positive, blue/black stripe = negative.",
+			"",
+			"Called 'breadboard' because early radio builders used",
+			"actual wooden bread-cutting boards with nails!",
+			"",
+			"Perfect for testing ideas - easy to change and reuse."
+		]
+	}
+]
+
+# Map view state
+var map_previous_mode: GameMode = GameMode.EXPLORATION
+var tex_world_map: Texture2D  # The world map texture
 var intro_text_timer: float = 0.0
 var intro_text_speed: float = 0.03
 var shed_explore_stage: int = 0
@@ -78,30 +281,62 @@ var pending_gadget: String = ""
 var ending_stage: int = 0
 var ending_timer: float = 0.0
 
+# Feedback screen (end of demo)
+var feedback_fade_alpha: float = 0.0
+var tex_qr_code: Texture2D
+
 # Screen transition effect
 var screen_transition_active: bool = false
 var screen_transition_alpha: float = 0.0
 var screen_transition_phase: int = 0  # 0 = fading out, 1 = fading in
 var screen_transition_speed: float = 1.8  # Slower, smoother fade
 
-# Radiotower Interior - Simple 2D Platformer
+# Radiotower Interior - Multi-floor vertical climb (3 screens)
 var tower_player_pos: Vector2 = Vector2(240, 280)
 var tower_player_vel: Vector2 = Vector2.ZERO
 var tower_player_grounded: bool = false
 var tower_player_facing_right: bool = true
 var tower_reached_top: bool = false
+var tower_current_floor: int = 0  # 0 = ground, 1 = middle, 2 = top (radio room)
+# Kaido follows player in tower
+var tower_kaido_pos: Vector2 = Vector2(200, 280)
+var tower_kaido_trail: Array = []  # Position history for following
+var tower_kaido_trail_delay: int = 25  # Frames behind player
 
-# Tower platforms - easy jumping layout
-var tower_platforms: Array = [
-	{"x": 0, "y": 290, "w": 480},       # Ground
-	{"x": 30, "y": 240, "w": 130},      # Level 1 left
-	{"x": 350, "y": 240, "w": 130},     # Level 1 right
-	{"x": 150, "y": 190, "w": 180},     # Level 2 center
-	{"x": 20, "y": 140, "w": 120},      # Level 3 left
-	{"x": 340, "y": 140, "w": 120},     # Level 3 right
-	{"x": 140, "y": 90, "w": 200},      # Level 4 center
-	{"x": 100, "y": 45, "w": 280},      # Top - radio
+# Tower platforms for each floor - more vertical challenging climb
+var tower_floor_platforms: Array = [
+	# Floor 0 - Ground level (entrance, industrial)
+	[
+		{"x": 0, "y": 290, "w": 480},       # Ground
+		{"x": 20, "y": 230, "w": 100},      # Left ledge
+		{"x": 360, "y": 230, "w": 100},     # Right ledge
+		{"x": 140, "y": 170, "w": 200},     # Center platform
+		{"x": 30, "y": 110, "w": 120},      # Upper left
+		{"x": 330, "y": 110, "w": 120},     # Upper right
+		{"x": 180, "y": 50, "w": 120},      # Exit platform (to floor 1)
+	],
+	# Floor 1 - Middle section (cables, machinery)
+	[
+		{"x": 0, "y": 290, "w": 480},       # Ground (entry from below)
+		{"x": 350, "y": 235, "w": 110},     # Right ledge
+		{"x": 40, "y": 235, "w": 110},      # Left ledge
+		{"x": 200, "y": 180, "w": 80},      # Center small
+		{"x": 50, "y": 130, "w": 150},      # Wide left
+		{"x": 280, "y": 130, "w": 150},     # Wide right
+		{"x": 160, "y": 70, "w": 160},      # Upper center
+		{"x": 200, "y": 20, "w": 80},       # Exit to top
+	],
+	# Floor 2 - Radio room (equipment, horizon view)
+	[
+		{"x": 0, "y": 290, "w": 480},       # Ground (entry)
+		{"x": 30, "y": 220, "w": 180},      # Left console area
+		{"x": 270, "y": 220, "w": 180},     # Right console area
+		{"x": 120, "y": 150, "w": 240},     # Main radio platform
+	],
 ]
+
+# Current platforms (changes based on floor)
+var tower_platforms: Array = []
 
 # Journal scroll
 var journal_scroll: float = 0.0
@@ -120,7 +355,7 @@ var cornfield_led_placed: bool = false
 
 # Lakeside (Down Road) - Scenic, fishing, secrets
 var lakeside_npcs: Array = [
-	{"pos": Vector2(150, 210), "name": "Fisher Bo", "dialogue": "The fish aren't biting today. Bad omen."},
+	{"pos": Vector2(290, 165), "name": "Fisher Bo", "dialogue": "The fish aren't biting today. Bad omen."},
 	{"pos": Vector2(280, 290), "name": "Old Mira", "dialogue": "I've seen patrol boats on the lake at night."},
 ]
 var lakeside_secret_found: bool = false
@@ -132,11 +367,12 @@ var town_npcs: Array = [
 	{"pos": Vector2(80, 280), "name": "Guard Tanaka", "dialogue": "I'm supposed to report unusual activity..."},
 ]
 var town_visited: bool = false
+var lakeside_visited: bool = false
 
-# Building entry positions (door locations)
-var shop_door_pos: Vector2 = Vector2(70, 95)      # Below shop, in door gap
-var townhall_door_pos: Vector2 = Vector2(240, 110) # Below town hall, in door gap
-var bakery_door_pos: Vector2 = Vector2(405, 95)   # Below bakery, in door gap
+# Building entry positions (door locations) - matched to building draw positions
+var shop_door_pos: Vector2 = Vector2(90, 130)      # Shop at x=30 (128px), door at center base
+var townhall_door_pos: Vector2 = Vector2(305, 100) # Town Hall at x=240 (128px), door at center
+var bakery_door_pos: Vector2 = Vector2(395, 130)   # Bakery at x=335 (128px), door at center base
 
 # Building interior NPCs
 var shop_npc: Dictionary = {"name": "Shopkeeper Bot-3000", "pos": Vector2(240, 180)}
@@ -162,6 +398,7 @@ var stampede_player_state_timer: float = 0.0
 var stampede_player_facing_right: bool = true
 var stampede_player_is_walking: bool = false  # Track if player is moving horizontally
 var stampede_bounce_cooldown: float = 0.0  # Brief cooldown between bounces
+var stampede_attack_hit_done: bool = false  # Track if punch hit check done this attack
 var stampede_wave: int = 0
 var stampede_animals: Array = []  # [{type, pos, vel, hp, hit_flash, defeated}]
 var stampede_spawn_timer: float = 0.0
@@ -189,6 +426,10 @@ var player_frame: int = 0
 var anim_timer: float = 0.0
 var is_walking: bool = false
 
+# Corn brush haptic feedback
+var corn_brush_timer: float = 0.0
+var corn_brush_interval: float = 0.15  # How often to trigger haptic when in corn
+
 # Stuck detection - push player out if trapped
 var player_stuck_timer: float = 0.0
 var player_last_pos: Vector2 = Vector2(240, 180)
@@ -205,13 +446,16 @@ var combat_player_stamina: float = 100.0
 var combat_player_max_stamina: float = 100.0
 var combat_player_pos: Vector2 = Vector2(150, 220)
 var combat_player_vel: Vector2 = Vector2.ZERO  # Velocity for snappy movement
-var combat_player_state: String = "idle"  # idle, attacking, dodging, hit, heavy_attack
+var combat_player_state: String = "idle"  # idle, attacking, dodging, hit, heavy_attack, high_kick, jumping
 var combat_player_state_timer: float = 0.0
 var combat_combo_count: int = 0
 var combat_combo_timer: float = 0.0
 var combat_player_facing_right: bool = true
 var combat_player_is_walking: bool = false  # Track if player is moving horizontally
 var combat_iframe_active: bool = false
+var combat_player_y_offset: float = 0.0  # Vertical offset for jumping
+var combat_player_y_vel: float = 0.0  # Vertical velocity for jumping
+var combat_player_grounded: bool = true  # Is player on ground
 
 # Slash trail effect
 var slash_trails: Array = []  # [{start, end, timer, color, width}]
@@ -257,10 +501,10 @@ var camera_bounds: Rect2 = Rect2(-240, -160, 480, 320)  # Full map pan range for
 
 # Collision rectangles for buildings - matched precisely to sprite edges
 var building_collisions: Array = [
-	# House: drawn at (275, 35), wall at (x, y+28, 90, 48)
-	Rect2(275, 63, 90, 48),     # House wall
+	# House: collision at base of house
+	Rect2(285, 65, 130, 50),     # House wall (larger collision for bigger sprite)
 	# Shed: collision centered on shed_pos (340, 270)
-	Rect2(350, 195, 45, 38),   # Shed body
+	Rect2(365, 200, 45, 38),   # Shed body
 	# Radiotower: drawn at (30, 20), legs at (x+5, y+30, 8, 60) and (x+37, y+30, 8, 60)
 	Rect2(35, 50, 8, 60),       # Radiotower left leg
 	Rect2(67, 50, 8, 60),       # Radiotower right leg
@@ -269,10 +513,6 @@ var building_collisions: Array = [
 	# Chicken coop: drawn at chicken_coop_pos (120, 90)
 	Rect2(110, 100, 30, 36),    # Chicken coop body
 
-	# Irrigation system: control panel at (70, 210, 35, 30), pipes extending right
-		 # Irrigation control panel
-	Rect2(105, 230, 42, 20),    # Horizontal pipe (thicker collision)
-	Rect2(140, 220, 12, 20),    # Vertical pipe (thicker collision)
 	# Crops area - drawn at (35, 200), 4x3 grid - collision matches actual position
 	# Trees - trunk collision only (matched to actual trunk rects)
 	# Large trees: trunk at (x+12, y+35, 16, 25)
@@ -298,7 +538,7 @@ var kaido_trail_delay: int = 45  # How many frames behind Kaido follows
 var kaido_speed: float = 100.0  # Kaido's movement speed
 var shed_pos: Vector2 = Vector2(372, 245)  # Door/interaction point
 var radiotower_pos: Vector2 = Vector2(55, 105)  # Base of tower where player climbs
-var irrigation_pos: Vector2 = Vector2(100, 220)
+var irrigation_pos: Vector2 = Vector2(50, 220)  # Interaction point for irrigation system
 var tunnel_pos: Vector2 = Vector2(430, 285)  # In lakeside area, rocky outcrop
 
 # Building interior exploration
@@ -320,12 +560,7 @@ var awareness_decay_rate: float = 15.0  # How fast it drops when hidden
 var awareness_fill_rate: float = 25.0  # How fast it fills when spotted
 var is_hiding: bool = false
 var hiding_spots: Array = [
-	Vector2(95, 50),     # Behind top-left tree
-	Vector2(95, 220),    # Behind irrigation
-	Vector2(340, 260),   # At the shed (where you build circuits)
-	Vector2(325, 235),   # Behind shed
-	Vector2(310, 85),    # Behind house
-	Vector2(0, 260),     # Behind bottom-left tree
+	Vector2(370, 250),   # Behind the shed - single invisible safe zone
 ]
 var player_detected: bool = false  # Game over state
 var kaido_warned_to_hide: bool = false
@@ -338,12 +573,21 @@ var dark_areas: Array = [
 	{"pos": Vector2(450, 60), "radius": 40, "name": "Overgrown Corner", "secret": "pond"},  # Near pond
 ]
 var discovered_areas: Array = []  # Names of areas that have been lit up
+var flashlight_reminder_shown: bool = false  # Track if we've shown the flashlight popup
+var in_dark_area: bool = false  # Track if player is currently in a dark area
 
-# Kid messenger
+# Kid messenger (Milo)
 var kid_visible: bool = false
 var kid_pos: Vector2 = Vector2(500, 170)  # Start off-screen right
 var kid_target_pos: Vector2 = Vector2(300, 170)
 var kid_walking_in: bool = false
+var kid_leaving: bool = false  # Running off screen
+var kid_facing: String = "left"  # down, up, left, right
+var milo_in_town: bool = true  # Milo hangs out in town center before farm scene
+var milo_town_pos: Vector2 = Vector2(320, 200)  # His spot in town center
+var milo_returned_to_town: bool = false  # After farm scene, he returns here
+var milo_town_talked: int = 0  # Track how many times player talked to Milo in town
+var milo_running_to_sewers: bool = false  # During ending scene
 
 # Farmer Wen
 var farmer_wen_visible: bool = false
@@ -351,6 +595,9 @@ var farmer_wen_pos: Vector2 = Vector2(500, 250)  # Start off-screen right
 var farmer_wen_target_pos: Vector2 = Vector2(280, 250)
 var farmer_wen_walking_in: bool = false
 var farmer_wen_leaving: bool = false
+var farmer_wen_facing: String = "west"  # south, north, east, west
+var farmer_wen_anim_frame: int = 0
+var farmer_wen_anim_timer: float = 0.0
 var tractor_pos: Vector2 = Vector2(550, 250)  # Tractor follows farmer
 var tractor_target_pos: Vector2 = Vector2(320, 250)
 var tractor_visible: bool = false
@@ -380,6 +627,10 @@ var npc_talk_count: Dictionary = {
 	"kid": 0
 }
 
+# Exploration phase tracking (after Farmer Wen, before radiotower)
+var exploration_npcs_talked: Array = []  # Names of NPCs talked to during exploration
+var exploration_complete: bool = false  # True when player has explored enough
+
 # Optional side circuits
 var side_circuits_done: Dictionary = {
 	"chicken_coop": false,
@@ -387,7 +638,7 @@ var side_circuits_done: Dictionary = {
 }
 var chicken_coop_pos: Vector2 = Vector2(120, 90)
 var chicken_coop_interact_pos: Vector2 = Vector2(155, 125)  # Near door/chickens
-var well_pos: Vector2 = Vector2(240, 285)  # In town center grass area
+var well_pos: Vector2 = Vector2(242, 282)  # Well at center bottom of town (matches draw at 210, 250)
 
 # Discoverable secrets
 var secrets_found: Array = []
@@ -430,9 +681,190 @@ var in_dialogue: bool = false
 var dialogue_queue: Array = []
 var current_dialogue: Dictionary = {}
 var current_dialogue_npc: String = ""
+var dialogue_npc_pos: Vector2 = Vector2.ZERO  # Position of NPC currently in dialogue
+var dialogue_npc_facing: String = "down"  # Direction NPC should face during dialogue
 var char_index: int = 0
 var text_timer: float = 0.0
 var text_speed: float = 0.025
+
+# Dialogue selection menu (NPC topic trees)
+var dialogue_menu_active: bool = false
+var dialogue_menu_options: Array = []  # Array of {"topic": String, "dialogue": Array}
+var dialogue_menu_selected: int = 0
+var dialogue_menu_scroll: int = 0  # For scrolling if many options
+var dialogue_menu_npc: String = ""  # NPC name for this menu
+var dialogue_menu_scroll_delay: float = 0.0  # Delay between scrolls
+const DIALOGUE_MENU_SCROLL_INTERVAL: float = 0.18  # Seconds between menu scrolls
+
+# NPC dialogue trees - each NPC has multiple topics to discuss
+var npc_dialogue_trees: Dictionary = {
+	"Grandmother": [
+		{"topic": "New Sumida City", "dialogue": [
+			{"speaker": "grandmother", "text": "New Sumida... the city of eternal lights. Built on the ruins of Old Sumida."},
+			{"speaker": "grandmother", "text": "They say Professor Ohm still teaches there, in the underground schools."},
+			{"speaker": "grandmother", "text": "Your grandfather studied under him once, long ago."},
+		]},
+		{"topic": "The KVar Sea", "dialogue": [
+			{"speaker": "grandmother", "text": "The KVar Sea stretches beyond the eastern mountains."},
+			{"speaker": "grandmother", "text": "Pirates once ruled those waters. The Copper Fleet, they called themselves."},
+			{"speaker": "grandmother", "text": "Some say they still sail, trading in forbidden knowledge."},
+		]},
+		{"topic": "Kaido", "dialogue": [
+			{"speaker": "grandmother", "text": "That little robot... it reminds me of the old teaching machines."},
+			{"speaker": "grandmother", "text": "Before the takeover, we had technology that helped us learn."},
+		]},
+		{"topic": "The Old Ways", "dialogue": [
+			{"speaker": "grandmother", "text": "My grandmother told stories of the samurai engineers."},
+			{"speaker": "grandmother", "text": "They built bridges and waterwheels. Masters of both blade and circuit."},
+		]},
+	],
+	"Farmer Wen": [
+		{"topic": "Hustellia", "dialogue": [
+			{"speaker": "villager", "text": "Hustellia lies beyond the northern pass. A merchant kingdom."},
+			{"speaker": "villager", "text": "They trade in steam engines and clockwork. Neutral in all conflicts."},
+			{"speaker": "villager", "text": "My cousin moved there. Says the markets sell wonders."},
+		]},
+		{"topic": "The Syndicate", "dialogue": [
+			{"speaker": "villager", "text": "Before Energy Nation, the Mob controlled the cities."},
+			{"speaker": "villager", "text": "The Volt Syndicate, they called it. Ran the power grid like a racket."},
+			{"speaker": "villager", "text": "Some say they still operate in New Sumida's shadows."},
+		]},
+		{"topic": "The Farm", "dialogue": [
+			{"speaker": "villager", "text": "My family built this farm with their own hands."},
+			{"speaker": "villager", "text": "Four generations. We've seen empires rise and fall."},
+		]},
+	],
+	"Farmer Mae": [
+		{"topic": "The Copper Fleet", "dialogue": [
+			{"speaker": "villager", "text": "My grandfather was a pirate! Part of the Copper Fleet."},
+			{"speaker": "villager", "text": "They raided Energy Nation supply ships on the KVar Sea."},
+			{"speaker": "villager", "text": "He always said the sea remembers those who fight for freedom."},
+		]},
+		{"topic": "Terra Machina", "dialogue": [
+			{"speaker": "villager", "text": "The old maps call this whole continent Terra Machina."},
+			{"speaker": "villager", "text": "Land of machines. Even the name speaks of our history."},
+		]},
+		{"topic": "Her Family", "dialogue": [
+			{"speaker": "villager", "text": "Young Taro loves stories about the samurai."},
+			{"speaker": "villager", "text": "I tell him about Ronin Kira, the wandering engineer."},
+		]},
+	],
+	"Old Chen": [
+		{"topic": "The Samurai", "dialogue": [
+			{"speaker": "villager", "text": "The samurai engineers weren't just warriors."},
+			{"speaker": "villager", "text": "They built the first automatons. Clockwork servants."},
+			{"speaker": "villager", "text": "Energy Nation stole their designs. Twisted them."},
+		]},
+		{"topic": "Ronin Kira", "dialogue": [
+			{"speaker": "villager", "text": "Ronin Kira was the last of the old masters."},
+			{"speaker": "villager", "text": "She wandered Terra Machina, teaching children in secret."},
+			{"speaker": "villager", "text": "Some say Kaido was built from her blueprints."},
+		]},
+		{"topic": "The Festival", "dialogue": [
+			{"speaker": "villager", "text": "Before everything changed, we had the Spark Festival."},
+			{"speaker": "villager", "text": "Lanterns powered by tiny circuits. Children learning to build."},
+			{"speaker": "villager", "text": "Music, dancing... those days feel like a dream now."},
+		]},
+	],
+	"Young Taro": [
+		{"topic": "Pirates!", "dialogue": [
+			{"speaker": "villager", "text": "Grandpa says pirates had ships made of copper and brass!"},
+			{"speaker": "villager", "text": "They could outrun any patrol boat on the KVar Sea!"},
+			{"speaker": "kaido", "text": "The Copper Fleet was legendary. Very brave sailors."},
+		]},
+		{"topic": "Samurai Stories", "dialogue": [
+			{"speaker": "villager", "text": "Mom tells me about Ronin Kira!"},
+			{"speaker": "villager", "text": "She had a sword that could cut through robot armor!"},
+			{"speaker": "villager", "text": "And she built toys for kids in every village she visited!"},
+		]},
+		{"topic": "The Big City", "dialogue": [
+			{"speaker": "villager", "text": "Have you been to New Sumida? Is it really made of lights?"},
+			{"speaker": "villager", "text": "I wanna see the clocktower! They say it's taller than mountains!"},
+		]},
+	],
+	"Fisher Bo": [
+		{"topic": "The KVar Sea", "dialogue": [
+			{"speaker": "villager", "text": "The KVar Sea... I sailed her once. Wild waters."},
+			{"speaker": "villager", "text": "Strange islands out there. Ruins of the old world."},
+			{"speaker": "villager", "text": "The fish from those waters taste like nothing else."},
+		]},
+		{"topic": "Sea Legends", "dialogue": [
+			{"speaker": "villager", "text": "Sailors speak of the Iron Leviathan."},
+			{"speaker": "villager", "text": "A submarine from before the takeover. Still patrols the deep."},
+			{"speaker": "villager", "text": "Some say it protects the Copper Fleet's hidden base."},
+		]},
+		{"topic": "The Lake", "dialogue": [
+			{"speaker": "villager", "text": "This lake connects to underground rivers."},
+			{"speaker": "villager", "text": "Old traders used them to reach Hustellia unseen."},
+		]},
+	],
+	"Old Mira": [
+		{"topic": "New Sumida", "dialogue": [
+			{"speaker": "villager", "text": "I lived in New Sumida once. Before it was 'new.'"},
+			{"speaker": "villager", "text": "The neon signs, the elevated trains, the night markets..."},
+			{"speaker": "villager", "text": "Beautiful and dangerous in equal measure."},
+		]},
+		{"topic": "The Mob", "dialogue": [
+			{"speaker": "villager", "text": "The Volt Syndicate ran everything in the old days."},
+			{"speaker": "villager", "text": "They weren't good people, but they had a code."},
+			{"speaker": "villager", "text": "Never hurt the common folk. Energy Nation has no such honor."},
+		]},
+		{"topic": "Wisdom", "dialogue": [
+			{"speaker": "villager", "text": "I've seen pirates, samurai, mobsters, and machines."},
+			{"speaker": "villager", "text": "You know what survives? Stories. Knowledge passed down."},
+			{"speaker": "villager", "text": "That's what your little robot carries. Never forget that."},
+		]},
+	],
+	"Elder Sato": [
+		{"topic": "Hustellia Trade", "dialogue": [
+			{"speaker": "villager", "text": "Hustellia's merchants are the best in Terra Machina."},
+			{"speaker": "villager", "text": "They sell steam engines, music boxes, even pet automatons."},
+			{"speaker": "villager", "text": "Neutral ground. Even Energy Nation trades there."},
+		]},
+		{"topic": "The Old Empire", "dialogue": [
+			{"speaker": "villager", "text": "Before the nations divided, there was one empire."},
+			{"speaker": "villager", "text": "The Shogunate of Light. Samurai engineers ruled justly."},
+			{"speaker": "villager", "text": "Some say descendants of the old lords hide in the mountains."},
+		]},
+		{"topic": "Professor Ohm", "dialogue": [
+			{"speaker": "villager", "text": "Professor Ohm is a legend among engineers."},
+			{"speaker": "villager", "text": "He taught at the New Sumida Academy before it was shut down."},
+			{"speaker": "villager", "text": "If anyone knows how to fight Energy Nation, it's him."},
+		]},
+	],
+	"Child Mei": [
+		{"topic": "Kaido", "dialogue": [
+			{"speaker": "villager", "text": "Your robot is SO COOL! Can it fly?"},
+			{"speaker": "kaido", "text": "I can't fly, but I can teach you how circuits work!"},
+			{"speaker": "villager", "text": "Circuits? Like the lights? AWESOME!"},
+		]},
+		{"topic": "Stories", "dialogue": [
+			{"speaker": "villager", "text": "Elder Sato tells the BEST stories!"},
+			{"speaker": "villager", "text": "About pirates with copper ships and samurai with lightning swords!"},
+			{"speaker": "villager", "text": "I wanna be a pirate samurai when I grow up!"},
+		]},
+		{"topic": "Games", "dialogue": [
+			{"speaker": "villager", "text": "Wanna play Copper Fleet later?"},
+			{"speaker": "villager", "text": "I'll be Captain Zara and you can be the Iron Leviathan!"},
+		]},
+	],
+	"Guard Tanaka": [
+		{"topic": "Before This Job", "dialogue": [
+			{"speaker": "villager", "text": "I used to work the Hustellia trade routes."},
+			{"speaker": "villager", "text": "Good money. Saw the whole continent."},
+			{"speaker": "villager", "text": "Then Energy Nation closed the borders..."},
+		]},
+		{"topic": "The Syndicate", "dialogue": [
+			{"speaker": "villager", "text": "The Volt Syndicate still has people in the cities."},
+			{"speaker": "villager", "text": "Underground networks. They help people... for a price."},
+			{"speaker": "villager", "text": "Not that I'd know anything about that. Officially."},
+		]},
+		{"topic": "The Coast", "dialogue": [
+			{"speaker": "villager", "text": "I miss the KVar Sea. The salt air. The freedom."},
+			{"speaker": "villager", "text": "Maybe someday I'll sail again."},
+		]},
+	],
+}
 
 # Quest tracking
 var quest_stage: int = 0
@@ -449,6 +881,21 @@ var faraday_credits: int = 0
 # Schematic popup
 var current_schematic: String = ""
 var schematic_shown: bool = false
+
+# Circuit Detection System (Pi Camera integration)
+const DetectionClientScript = preload("res://DetectionClient.gd")
+var detection_client: Node = null
+var detection_connected: bool = false
+var detection_pending: bool = false
+var detection_hint: String = ""
+var detection_errors: Array = []
+var detection_is_correct: bool = false
+var detection_score: float = 0.0
+var build_check_cooldown: float = 0.0  # Prevent spam clicking check button
+var build_attempt_count: int = 0  # Track attempts for hint escalation
+
+# Expected circuit for current build (sent to detection server)
+var expected_circuit: Dictionary = {}
 
 # Backpack/Gadget system
 var gadgets: Array = []
@@ -493,7 +940,7 @@ var gadget_data = {
 		"adventure_use": "Dim lights to sneak past guards. Create mood lighting for secret meetings. Adjust signal strength.",
 		"icon_color": Color(0.6, 0.4, 0.8),
 		"circuit": "Potentiometer Circuit",
-		"components": ["1x Potentiometer", "1x LED", "1x 330Î© Resistor"]
+		"components": ["1x Potentiometer", "1x LED", "1x 330 ohm Resistor"]
 	},
 	"light_sensor": {
 		"name": "Shadow Detector",
@@ -519,14 +966,6 @@ var gadget_data = {
 		"circuit": "Diode Logic",
 		"components": ["2x Diodes", "2x Push Buttons", "1x LED", "1x Resistor"]
 	},
-	"tractor_sensor": {
-		"name": "Presence Bypass",
-		"desc": "Fools occupancy sensors",
-		"adventure_use": "Start vehicles without sitting in them. Trigger weight plates remotely. Make machines think someone is still there.",
-		"icon_color": Color(0.8, 0.6, 0.3),
-		"circuit": "Pressure Bypass",
-		"components": ["1x Pressure Sensor Module", "Resistor Network"]
-	},
 	"well_indicator": {
 		"name": "Pump Indicator",
 		"desc": "Shows pump status",
@@ -534,6 +973,14 @@ var gadget_data = {
 		"icon_color": Color(0.4, 0.7, 0.9),
 		"circuit": "LED + Resistor",
 		"components": ["1x Blue LED", "1x 330 ohm Resistor", "Jumper Wires"]
+	},
+	"tractor_switch": {
+		"name": "Tractor Starter",
+		"desc": "Dual switch ignition circuit",
+		"adventure_use": "Start Farmer Wen's tractor with two sliding switches. Both switches must be ON for the LED to light.",
+		"icon_color": Color(0.8, 0.5, 0.2),
+		"circuit": "AND Gate (Switches)",
+		"components": ["2x Sliding Switches", "1x LED", "1x 330 ohm Resistor", "4x Jumper Wires"]
 	}
 }
 
@@ -545,6 +992,10 @@ var tex_player_walk_south: Array[Texture2D] = []
 var tex_player_walk_north: Array[Texture2D] = []
 var tex_player_walk_east: Array[Texture2D] = []
 var tex_player_walk_west: Array[Texture2D] = []
+var tex_player_jump_south: Array[Texture2D] = []
+var tex_player_jump_north: Array[Texture2D] = []
+var tex_player_jump_east: Array[Texture2D] = []
+var tex_player_jump_west: Array[Texture2D] = []
 var tex_player_idle_south: Texture2D
 var tex_player_idle_north: Texture2D
 var tex_player_idle_east: Texture2D
@@ -575,6 +1026,181 @@ var grandmother_frame: int = 0
 var grandmother_pause_timer: float = 0.0  # Pause at ends of pacing
 var grandmother_pace_speed: float = 30.0  # Variable speed
 var grandmother_pace_state: String = "walking"  # walking, pausing, looking
+var grandmother_arrived_at_irrigation: bool = false  # Track if she's explained the irrigation problem
+
+# NPC Sprite Textures with directional support and walk animations
+# Note: tex_farmer_wen already declared below with animation support
+
+# Farmer Mae - directional idle and walk animations
+var tex_farmer_mae_south: Texture2D
+var tex_farmer_mae_north: Texture2D
+var tex_farmer_mae_east: Texture2D
+var tex_farmer_mae_west: Texture2D
+var tex_farmer_mae_walk_south: Array[Texture2D] = []
+var tex_farmer_mae_walk_north: Array[Texture2D] = []
+var tex_farmer_mae_walk_east: Array[Texture2D] = []
+var tex_farmer_mae_walk_west: Array[Texture2D] = []
+var farmer_mae_anim_frame: int = 0
+
+# Old Chen - directional idle and walk animations
+var tex_old_chen_south: Texture2D
+var tex_old_chen_north: Texture2D
+var tex_old_chen_east: Texture2D
+var tex_old_chen_west: Texture2D
+var tex_old_chen_walk_south: Array[Texture2D] = []
+var tex_old_chen_walk_north: Array[Texture2D] = []
+var tex_old_chen_walk_east: Array[Texture2D] = []
+var tex_old_chen_walk_west: Array[Texture2D] = []
+
+# Young Taro - directional idle and walk animations
+var tex_young_taro_south: Texture2D
+var tex_young_taro_north: Texture2D
+var tex_young_taro_east: Texture2D
+var tex_young_taro_west: Texture2D
+var tex_young_taro_walk_south: Array[Texture2D] = []
+var tex_young_taro_walk_north: Array[Texture2D] = []
+var tex_young_taro_walk_east: Array[Texture2D] = []
+var tex_young_taro_walk_west: Array[Texture2D] = []
+var young_taro_anim_frame: int = 0
+
+# Fisher Bo - directional idle and walk animations
+var tex_fisher_bo_south: Texture2D
+var tex_fisher_bo_north: Texture2D
+var tex_fisher_bo_east: Texture2D
+var tex_fisher_bo_west: Texture2D
+var tex_fisher_bo_walk_south: Array[Texture2D] = []
+var tex_fisher_bo_walk_north: Array[Texture2D] = []
+var tex_fisher_bo_walk_east: Array[Texture2D] = []
+var tex_fisher_bo_walk_west: Array[Texture2D] = []
+
+# Old Mira - directional idle and walk animations
+var tex_old_mira_south: Texture2D
+var tex_old_mira_north: Texture2D
+var tex_old_mira_east: Texture2D
+var tex_old_mira_west: Texture2D
+var tex_old_mira_walk_south: Array[Texture2D] = []
+var tex_old_mira_walk_north: Array[Texture2D] = []
+var tex_old_mira_walk_east: Array[Texture2D] = []
+var tex_old_mira_walk_west: Array[Texture2D] = []
+
+# Elder Sato - directional idle and walk animations
+var tex_elder_sato_south: Texture2D
+var tex_elder_sato_north: Texture2D
+var tex_elder_sato_east: Texture2D
+var tex_elder_sato_west: Texture2D
+var tex_elder_sato_walk_south: Array[Texture2D] = []
+var tex_elder_sato_walk_north: Array[Texture2D] = []
+var tex_elder_sato_walk_east: Array[Texture2D] = []
+var tex_elder_sato_walk_west: Array[Texture2D] = []
+
+# Child Mei - directional idle and walk animations
+var tex_child_mei_south: Texture2D
+var tex_child_mei_north: Texture2D
+var tex_child_mei_east: Texture2D
+var tex_child_mei_west: Texture2D
+var tex_child_mei_walk_south: Array[Texture2D] = []
+var tex_child_mei_walk_north: Array[Texture2D] = []
+var tex_child_mei_walk_east: Array[Texture2D] = []
+var tex_child_mei_walk_west: Array[Texture2D] = []
+var child_mei_anim_frame: int = 0
+
+# Guard Tanaka - directional idle and walk animations
+var tex_guard_tanaka_south: Texture2D
+var tex_guard_tanaka_north: Texture2D
+var tex_guard_tanaka_east: Texture2D
+var tex_guard_tanaka_west: Texture2D
+var tex_guard_tanaka_walk_south: Array[Texture2D] = []
+var tex_guard_tanaka_walk_north: Array[Texture2D] = []
+var tex_guard_tanaka_walk_east: Array[Texture2D] = []
+var tex_guard_tanaka_walk_west: Array[Texture2D] = []
+var guard_tanaka_anim_frame: int = 0
+
+# Shopkeeper Bot - directional idle and walk animations
+var tex_shopkeeper_bot_south: Texture2D
+var tex_shopkeeper_bot_north: Texture2D
+var tex_shopkeeper_bot_east: Texture2D
+var tex_shopkeeper_bot_west: Texture2D
+var tex_shopkeeper_bot_walk_south: Array[Texture2D] = []
+var tex_shopkeeper_bot_walk_north: Array[Texture2D] = []
+var tex_shopkeeper_bot_walk_east: Array[Texture2D] = []
+var tex_shopkeeper_bot_walk_west: Array[Texture2D] = []
+
+# Mayor Hiroshi - directional idle and walk animations
+var tex_mayor_hiroshi_south: Texture2D
+var tex_mayor_hiroshi_north: Texture2D
+var tex_mayor_hiroshi_east: Texture2D
+var tex_mayor_hiroshi_west: Texture2D
+var tex_mayor_hiroshi_walk_south: Array[Texture2D] = []
+var tex_mayor_hiroshi_walk_north: Array[Texture2D] = []
+var tex_mayor_hiroshi_walk_east: Array[Texture2D] = []
+var tex_mayor_hiroshi_walk_west: Array[Texture2D] = []
+
+# Baker Bot - directional idle and walk animations
+var tex_baker_bot_south: Texture2D
+var tex_baker_bot_north: Texture2D
+var tex_baker_bot_east: Texture2D
+var tex_baker_bot_west: Texture2D
+var tex_baker_bot_walk_south: Array[Texture2D] = []
+var tex_baker_bot_walk_north: Array[Texture2D] = []
+var tex_baker_bot_walk_east: Array[Texture2D] = []
+var tex_baker_bot_walk_west: Array[Texture2D] = []
+
+# NPC animation loaded flags
+var npc_anims_loaded: bool = false
+
+# Roaming NPC System - similar to roaming animals
+var roaming_npcs: Array = []
+
+# Roaming NPC state variables
+var child_mei_pos: Vector2 = Vector2(340, 250)
+var child_mei_home: Vector2 = Vector2(340, 250)
+var child_mei_target: Vector2 = Vector2(340, 250)
+var child_mei_speed: float = 25.0
+var child_mei_roam_radius: float = 80.0
+var child_mei_direction_timer: float = 0.0
+var child_mei_facing: String = "down"
+var child_mei_is_walking: bool = false
+
+var young_taro_pos: Vector2 = Vector2(200, 100)
+var young_taro_home: Vector2 = Vector2(200, 100)
+var young_taro_target: Vector2 = Vector2(200, 100)
+var young_taro_speed: float = 15.0
+var young_taro_roam_radius: float = 30.0
+var young_taro_direction_timer: float = 0.0
+var young_taro_facing: String = "down"
+var young_taro_is_walking: bool = false
+
+var guard_tanaka_pos: Vector2 = Vector2(80, 280)
+var guard_tanaka_home: Vector2 = Vector2(80, 280)
+var guard_tanaka_target: Vector2 = Vector2(80, 280)
+var guard_tanaka_speed: float = 25.0
+var guard_tanaka_patrol_index: int = 0
+var guard_tanaka_patrol_timer: float = 0.0
+var guard_tanaka_facing: String = "down"
+var guard_tanaka_is_walking: bool = false
+# Patrol points for guard (rectangular patrol around town center)
+var guard_tanaka_patrol_points: Array = [
+	Vector2(80, 280), Vector2(400, 280), Vector2(400, 120), Vector2(80, 120)
+]
+
+var farmer_mae_pos: Vector2 = Vector2(120, 180)
+var farmer_mae_home: Vector2 = Vector2(120, 180)
+var farmer_mae_target: Vector2 = Vector2(120, 180)
+var farmer_mae_speed: float = 18.0
+var farmer_mae_roam_radius: float = 50.0
+var farmer_mae_direction_timer: float = 0.0
+var farmer_mae_facing: String = "down"
+var farmer_mae_is_walking: bool = false
+
+# Stationary NPC positions (matching the arrays)
+var farmer_wen_npc_pos: Vector2 = Vector2(380, 80)  # Near farmhouse in cornfield
+var old_chen_npc_pos: Vector2 = Vector2(350, 220)   # Cornfield
+var fisher_bo_npc_pos: Vector2 = Vector2(290, 165)  # Lakeside dock area
+var old_mira_npc_pos: Vector2 = Vector2(230, 255)    # Lakeside near frogs
+var elder_sato_npc_pos: Vector2 = Vector2(140, 230) # Town center
+
+# NPC animation timers
+var npc_idle_timer: float = 0.0
 
 # Player attack animation frames
 var tex_player_attack_south: Array[Texture2D] = []
@@ -584,6 +1210,19 @@ var tex_player_attack_west: Array[Texture2D] = []
 var player_attacking: bool = false
 var player_attack_frame: int = 0
 var player_attack_timer: float = 0.0
+var player_attack_hit_done: bool = false  # Track if hit check done this attack
+
+# Fight stance idle animation frames (for combat)
+var tex_player_fight_idle_south: Array[Texture2D] = []
+var tex_player_fight_idle_north: Array[Texture2D] = []
+var tex_player_fight_idle_east: Array[Texture2D] = []
+var tex_player_fight_idle_west: Array[Texture2D] = []
+
+# High kick animation frames
+var tex_player_high_kick_south: Array[Texture2D] = []
+var tex_player_high_kick_north: Array[Texture2D] = []
+var tex_player_high_kick_east: Array[Texture2D] = []
+var tex_player_high_kick_west: Array[Texture2D] = []
 
 # Tileset textures
 var tex_tiled_dirt: Texture2D
@@ -602,9 +1241,36 @@ var tex_lake_sand: Texture2D
 var tex_grass_biome: Texture2D
 var tex_chicken_house: Texture2D
 var tex_shed: Texture2D
+var tex_farmhouse: Texture2D
+var tex_townhall: Texture2D
+var tex_shop: Texture2D
+var tex_bakery: Texture2D
+var tex_well: Texture2D
+var tex_fountain: Texture2D
+var tex_street_lamp: Texture2D
 var tex_sewer: Texture2D
 var tex_chicken_sprites: Texture2D
 var tex_cow_sprites: Texture2D
+
+# Heavy robot animation textures (grey/black/red enemy robot)
+const HEAVY_ROBOT_PATH = "res://heavy_enemy_robot_grey_and_black_and_red/"
+var tex_heavy_robot_idle_south: Texture2D
+var tex_heavy_robot_idle_north: Texture2D
+var tex_heavy_robot_idle_east: Texture2D
+var tex_heavy_robot_idle_west: Texture2D
+var tex_heavy_robot_walk_south: Array[Texture2D] = []
+var tex_heavy_robot_walk_north: Array[Texture2D] = []
+var tex_heavy_robot_walk_east: Array[Texture2D] = []
+var tex_heavy_robot_walk_west: Array[Texture2D] = []
+var tex_heavy_robot_jab_south: Array[Texture2D] = []
+var tex_heavy_robot_jab_north: Array[Texture2D] = []
+var tex_heavy_robot_jab_east: Array[Texture2D] = []
+var tex_heavy_robot_jab_west: Array[Texture2D] = []
+var tex_heavy_robot_fireball_south: Array[Texture2D] = []
+var tex_heavy_robot_fireball_north: Array[Texture2D] = []
+var tex_heavy_robot_fireball_east: Array[Texture2D] = []
+var tex_heavy_robot_fireball_west: Array[Texture2D] = []
+var heavy_robot_anim_loaded: bool = false
 
 # Gadget icon textures
 var tex_gadget_flashlight: Texture2D
@@ -649,14 +1315,50 @@ var tex_shop_robot: Texture2D
 var tex_shop_robot_portrait: Texture2D
 var tex_farmer_wen: Texture2D
 var tex_farmer_wen_portrait: Texture2D
+# Farmer Wen animation textures
+var tex_farmer_wen_walk_south: Array[Texture2D] = []
+var tex_farmer_wen_walk_north: Array[Texture2D] = []
+var tex_farmer_wen_walk_east: Array[Texture2D] = []
+var tex_farmer_wen_walk_west: Array[Texture2D] = []
+var tex_farmer_wen_idle_south: Texture2D
+var tex_farmer_wen_idle_north: Texture2D
+var tex_farmer_wen_idle_east: Texture2D
+var tex_farmer_wen_idle_west: Texture2D
+var farmer_wen_anim_loaded: bool = false
+var tex_farmer_wen_tractor: Texture2D
+var tex_irrigation: Texture2D
+var tex_corn: Texture2D  # Corn sprite for cornfield
 var tex_kid_milo: Texture2D
 var tex_kid_milo_portrait: Texture2D
+
+# Milo sprite textures from milo_villager folder
+const MILO_PATH = "res://milo_villager/"
+var tex_milo_south: Texture2D
+var tex_milo_north: Texture2D
+var tex_milo_east: Texture2D
+var tex_milo_west: Texture2D
+var tex_milo_run_south: Array[Texture2D] = []
+var tex_milo_run_north: Array[Texture2D] = []
+var tex_milo_run_east: Array[Texture2D] = []
+var tex_milo_run_west: Array[Texture2D] = []
+var milo_anim_frame: int = 0
+var milo_anim_timer: float = 0.0
+var milo_is_running: bool = false
 var tex_old_family_photo: Texture2D
 var tex_grass_tileset: Texture2D
 var tex_grass_tile: Texture2D
 var tex_grass_tile_dark: Texture2D
 var tex_dirt_tile: Texture2D
+var tex_dark_red_tile: Texture2D  # Dark red tile for cornfield ground
 var tex_ninja_field: Texture2D  # Ninja Adventure TilesetField.png for ground tiles
+var tex_interior_floor: Texture2D  # Interior floor tiles
+var tex_floor_tile: Texture2D     # Sprout Lands floor tile for interiors
+var tex_light_brick_tile: Texture2D  # Light brick tile for town walkways
+var tex_grey_brick_tile: Texture2D   # Grey brick tile for town walkways
+var tex_interior_wall: Texture2D  # Interior wall tiles
+var tex_interior_elements: Texture2D  # Interior furniture/elements
+var tex_house_tileset: Texture2D  # House/furniture props tileset
+var tex_flags: Array[Texture2D] = []  # Colorful flag sprites for bunting
 var tex_ninja_oldman: Texture2D
 var tex_ninja_oldman2: Texture2D
 var tex_ninja_princess: Texture2D
@@ -669,6 +1371,9 @@ var roaming_animals: Array = []
 var tex_tumbleweed: Texture2D
 var tumbleweeds: Array = []
 
+# Boulder for lakeside rocks
+var tex_boulder: Texture2D
+
 # Asset paths
 const SPROUT_PATH = "res://Sprout Lands - Sprites - Basic pack/"
 const MYSTIC_PATH = "res://mystic_woods_free_2.2/sprites/"
@@ -678,9 +1383,13 @@ const TILESET_PATH = "res://Sprout Lands - Sprites - Basic pack/Tilesets/"
 const OBJECTS_PATH = "res://Sprout Lands - Sprites - Basic pack/Objects/"
 const PLAYER_ANIM_PATH = "res://player_sprite_and_animations/"
 const GRANDMOTHER_ANIM_PATH = "res://elderly_Japanese_farmer_grandmother_sprite_short_g/"
+const FARMER_WEN_ANIM_PATH = "res://Elderly_Asian_male_farmer._Weathered_face_kind_eye/"
+const MUSIC_PATH = "res://xDeviruchi - 8-bit Fantasy  & Adventure Music (2021)/"
 
-# Combat sprites
-var tex_robot_enemy: Texture2D
+# Music system
+var music_player: AudioStreamPlayer
+var current_music: String = ""
+var music_tracks: Dictionary = {}
 
 # Circuit schematic textures
 # Circuit schematic textures (5 MVP circuits)
@@ -689,6 +1398,9 @@ var tex_schematic_buzzer_button: Texture2D
 var tex_schematic_light_sensor: Texture2D
 var tex_schematic_series_leds: Texture2D
 var tex_schematic_dimmer: Texture2D
+var tex_schematic_button_indicator: Texture2D
+var tex_schematic_or_gate: Texture2D
+var tex_schematic_tractor_switch: Texture2D
 
 # Text wrap settings
 const DIALOGUE_MAX_WIDTH = 340
@@ -714,6 +1426,47 @@ func haptic_heavy():
 	haptic_feedback(0.45, 0.12)
 	# Small screen shake for heavy feedback
 	screen_shake = 2.0
+
+func haptic_punch():
+	# Strong haptic for punch attacks - much more impactful
+	Input.start_joy_vibration(0, 0.6, 0.9, 0.15)
+
+func haptic_punch_hit():
+	# Extra strong haptic when punch connects with something
+	Input.start_joy_vibration(0, 0.8, 1.0, 0.2)
+
+func haptic_corn_brush():
+	# Very light haptic for corn brushing against player
+	Input.start_joy_vibration(0, 0.05, 0.1, 0.05)
+
+func is_player_in_corn() -> bool:
+	# Check if player is in the cornfield area and not on the path
+	if current_area != Area.CORNFIELD:
+		return false
+	# Player is in corn if not on the center path (x between 180-300)
+	return player_pos.x < 180 or player_pos.x > 300
+
+# Check if controller is connected
+func is_using_controller() -> bool:
+	return Input.get_connected_joypads().size() > 0
+
+# Get button text based on input method (keyboard or PS4 controller)
+func get_button_text(action: String) -> String:
+	var using_controller = is_using_controller()
+	match action:
+		"counter":
+			return "[Y]" if not using_controller else "[△]"
+		"attack":
+			return "[X]" if not using_controller else "[□]"
+		"evade":
+			return "[Space]" if not using_controller else "[○]"
+		"heavy":
+			return "[Shift]" if not using_controller else "[X]"
+		"gadget":
+			return "[R]" if not using_controller else "[R1]"
+		"interact":
+			return "[E]" if not using_controller else "[X]"
+	return "[" + action + "]"
 
 func get_terrain_type() -> String:
 	# Determine terrain based on area and position
@@ -851,7 +1604,7 @@ func _ready():
 	load_sprites()
 	# Initialize area drawing helper
 	area_draw = AreaDraw.new(self)
-	area_draw.set_shared_textures(tex_grass_biome, tex_water, tex_wooden_house, tex_fences, tex_chicken_house)
+	area_draw.set_shared_textures(tex_grass_biome, tex_water, tex_wooden_house, tex_fences, tex_chicken_house, tex_farmhouse, tex_townhall, tex_shop, tex_bakery, tex_well)
 	# Initialize UI drawing helper
 	ui_draw = UIDraw.new(self)
 	# Initialize combat system
@@ -862,6 +1615,8 @@ func _ready():
 	interior_sc = InteriorSc.new(self)
 	# Initialize camera centered on player
 	center_camera_on_player()
+	# Initialize circuit detection client (Pi Camera integration)
+	init_detection_client()
 	# Debug: Print connected controllers
 	var joypads = Input.get_connected_joypads()
 	print("=== CONTROLLER DEBUG ===")
@@ -869,6 +1624,488 @@ func _ready():
 	for joy_id in joypads:
 		print("  Joypad ", joy_id, ": ", Input.get_joy_name(joy_id))
 	print("========================")
+
+	# Initialize music system
+	load_music()
+	play_music_for_state()
+
+	# Load saved game if exists
+	if load_game():
+		center_camera_on_player()
+
+# ============================================
+# CIRCUIT DETECTION CLIENT (Pi Camera)
+# ============================================
+
+func init_detection_client():
+	"""Initialize the detection client for Pi Camera circuit checking."""
+	detection_client = DetectionClientScript.new()
+	add_child(detection_client)
+
+	# Connect signals
+	detection_client.connected.connect(_on_detection_connected)
+	detection_client.disconnected.connect(_on_detection_disconnected)
+	detection_client.connection_failed.connect(_on_detection_connection_failed)
+	detection_client.detection_complete.connect(_on_detection_complete)
+	detection_client.comparison_complete.connect(_on_comparison_complete)
+	detection_client.error.connect(_on_detection_error)
+
+	# Try to connect to the detection server
+	# On Pi, the server runs as a systemd service
+	# On desktop, can run manually for testing
+	detection_client.connect_to_server("localhost", 9876)
+	print("[DetectionClient] Attempting connection to detection server...")
+
+func _on_detection_connected():
+	detection_connected = true
+	print("[DetectionClient] Connected to detection server")
+	# Start the detection pipeline
+	detection_client.start_pipeline()
+
+# ============================================
+# AUTOSAVE SYSTEM
+# ============================================
+
+const SAVE_PATH = "user://savegame.save"
+var autosave_timer: float = 0.0
+var autosave_interval: float = 60.0  # Autosave every 60 seconds
+var last_saved_area: int = -1
+var last_saved_quest: int = -1
+
+func save_game():
+	"""Save current game state to file."""
+	var save_data = {
+		"version": 1,
+		"quest_stage": quest_stage,
+		"circuits_built": circuits_built,
+		"current_quest": current_quest,
+		"current_area": current_area,
+		"player_pos_x": player_pos.x,
+		"player_pos_y": player_pos.y,
+		"gadgets": gadgets,
+		"loot_items": loot_items,
+		"faraday_credits": faraday_credits,
+		"help_meter": help_meter,
+		"cornfield_led_placed": cornfield_led_placed,
+		"lakeside_secret_found": lakeside_secret_found,
+		"town_visited": town_visited,
+		"lakeside_visited": lakeside_visited,
+		"shop_talked": shop_talked,
+		"mayor_talked": mayor_talked,
+		"baker_talked": baker_talked,
+		"tower_reached_top": tower_reached_top,
+		"tower_current_floor": tower_current_floor,
+		"shed_explore_stage": shed_explore_stage,
+	}
+
+	var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if file:
+		file.store_var(save_data)
+		file.close()
+		print("[Autosave] Game saved successfully")
+	else:
+		print("[Autosave] Failed to save game")
+
+func load_game() -> bool:
+	"""Load game state from file. Returns true if loaded successfully."""
+	if not FileAccess.file_exists(SAVE_PATH):
+		print("[Autosave] No save file found")
+		return false
+
+	var file = FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if not file:
+		print("[Autosave] Failed to open save file")
+		return false
+
+	var save_data = file.get_var()
+	file.close()
+
+	if save_data == null or not save_data.has("version"):
+		print("[Autosave] Invalid save file")
+		return false
+
+	# Restore game state
+	quest_stage = save_data.get("quest_stage", 0)
+	circuits_built = save_data.get("circuits_built", 0)
+	current_quest = save_data.get("current_quest", "")
+	current_area = save_data.get("current_area", Area.FARM)
+	player_pos.x = save_data.get("player_pos_x", 240.0)
+	player_pos.y = save_data.get("player_pos_y", 260.0)
+	gadgets = save_data.get("gadgets", [])
+	loot_items = save_data.get("loot_items", [])
+	faraday_credits = save_data.get("faraday_credits", 0)
+	help_meter = save_data.get("help_meter", 100.0)
+	cornfield_led_placed = save_data.get("cornfield_led_placed", false)
+	lakeside_secret_found = save_data.get("lakeside_secret_found", false)
+	town_visited = save_data.get("town_visited", false)
+	lakeside_visited = save_data.get("lakeside_visited", false)
+	shop_talked = save_data.get("shop_talked", false)
+	mayor_talked = save_data.get("mayor_talked", false)
+	baker_talked = save_data.get("baker_talked", false)
+	tower_reached_top = save_data.get("tower_reached_top", false)
+	tower_current_floor = save_data.get("tower_current_floor", 0)
+	shed_explore_stage = save_data.get("shed_explore_stage", 0)
+
+	# Track for autosave triggers
+	last_saved_area = current_area
+	last_saved_quest = quest_stage
+
+	# Skip intro if we have progress
+	if quest_stage > 0:
+		current_mode = GameMode.EXPLORATION
+
+	print("[Autosave] Game loaded - Quest stage: ", quest_stage, ", Area: ", current_area)
+	return true
+
+func check_autosave(delta: float):
+	"""Check if autosave should trigger."""
+	# Only autosave during exploration
+	if current_mode != GameMode.EXPLORATION:
+		return
+
+	# Immediate save on area change
+	if current_area != last_saved_area:
+		last_saved_area = current_area
+		save_game()
+		return
+
+	# Immediate save on quest progress
+	if quest_stage != last_saved_quest:
+		last_saved_quest = quest_stage
+		save_game()
+		return
+
+	# Periodic autosave
+	autosave_timer += delta
+	if autosave_timer >= autosave_interval:
+		autosave_timer = 0.0
+		save_game()
+
+func _on_detection_disconnected():
+	detection_connected = false
+	print("[DetectionClient] Disconnected from detection server")
+
+func _on_detection_connection_failed(error: String):
+	detection_connected = false
+	print("[DetectionClient] Connection failed: ", error)
+	# On desktop without server, continue with mock/skip detection
+	# The game will work in "demo mode" where builds auto-succeed
+
+func _on_detection_complete(result):
+	"""Handle raw detection result (without comparison)."""
+	detection_pending = false
+	print("[DetectionClient] Detection complete: ", result.circuit_state.get_component_count(), " components")
+
+func _on_comparison_complete(result):
+	"""Handle comparison result with hints and correctness."""
+	detection_pending = false
+	detection_is_correct = result.is_correct
+	detection_score = result.score
+	detection_hint = result.hint if result.hint else ""
+	detection_errors = []
+
+	for err in result.errors:
+		detection_errors.append({
+			"code": err.code,
+			"severity": err.severity,
+			"message": err.message
+		})
+
+	print("[DetectionClient] Comparison complete - Correct: ", detection_is_correct, ", Score: ", detection_score)
+
+	if detection_is_correct:
+		# Circuit is correct! Trigger success
+		on_circuit_build_success()
+	else:
+		# Show hint and let player try again
+		on_circuit_build_hint()
+
+func _on_detection_error(message: String):
+	detection_pending = false
+	print("[DetectionClient] Error: ", message)
+	# Show error to player
+	detection_hint = "Detection error - please try again"
+
+func check_circuit():
+	"""Request circuit check from detection server."""
+	if not detection_connected:
+		# No server - auto-succeed for demo mode
+		print("[DetectionClient] No server - using demo mode (auto-success)")
+		detection_is_correct = true
+		on_circuit_build_success()
+		return
+
+	if detection_pending:
+		return  # Already checking
+
+	if build_check_cooldown > 0:
+		return  # Cooldown active
+
+	detection_pending = true
+	build_check_cooldown = 1.0  # 1 second cooldown
+	build_attempt_count += 1
+
+	# Send expected circuit to server for comparison
+	detection_client.compare(expected_circuit)
+
+	# Show checking feedback
+	dialogue_queue = [
+		{"speaker": "kaido", "text": "Let me check your circuit..."}
+	]
+	next_dialogue()
+
+func on_circuit_build_success():
+	"""Called when circuit is verified correct."""
+	# Play success dialogue based on current schematic
+	var success_dialogues = get_circuit_success_dialogue(current_schematic)
+	dialogue_queue = success_dialogues
+	dialogue_queue.append({"speaker": "gadget_complete", "text": "", "gadget": current_schematic})
+	next_dialogue()
+
+	# Reset detection state
+	build_attempt_count = 0
+	detection_hint = ""
+	detection_errors = []
+
+func on_circuit_build_hint():
+	"""Called when circuit has errors - show pedagogical hint."""
+	var hint_dialogue = []
+
+	# Kaido gives hint based on attempt count (Sherlock 2 ITS escalation)
+	if build_attempt_count == 1:
+		# First attempt - gentle nudge
+		hint_dialogue = [
+			{"speaker": "kaido", "text": "Hmm, something's not quite right..."},
+			{"speaker": "kaido", "text": detection_hint if detection_hint else "Check your connections carefully."},
+		]
+	elif build_attempt_count == 2:
+		# Second attempt - more specific
+		hint_dialogue = [
+			{"speaker": "kaido", "text": "Getting closer! But..."},
+			{"speaker": "kaido", "text": detection_hint if detection_hint else "Make sure each component is in the right place."},
+		]
+	else:
+		# Third+ attempt - direct guidance
+		hint_dialogue = [
+			{"speaker": "kaido", "text": "Let me help you out..."},
+			{"speaker": "kaido", "text": detection_hint if detection_hint else "Check the schematic again - I'll highlight the issue."},
+		]
+		# Could show schematic with error highlighted here
+
+	dialogue_queue = hint_dialogue
+	next_dialogue()
+
+func get_circuit_success_dialogue(circuit_id: String) -> Array:
+	"""Get success dialogue for a specific circuit."""
+	match circuit_id:
+		"led_lamp":
+			return [
+				{"speaker": "kaido", "text": "The LED shines bright red!"},
+				{"speaker": "kaido", "text": "You built your first circuit!"},
+				{"speaker": "set_stage", "text": "2"},
+				{"speaker": "quest", "text": "Explore the Shed"},
+			]
+		"buzzer_alarm":
+			return [
+				{"speaker": "kaido", "text": "The buzzer sounds!"},
+				{"speaker": "system", "text": "[ The patrol marches through... ]"},
+				{"speaker": "set_stage", "text": "6"},
+				{"speaker": "quest", "text": "Hide from Robot Patrol"},
+			]
+		"dimmer":
+			return [
+				{"speaker": "kaido", "text": "The dimmer works!"},
+				{"speaker": "system", "text": "[ Water flows to the crops! ]"},
+				{"speaker": "grandmother", "text": "The fields will live another season."},
+			]
+		"light_sensor":
+			return [
+				{"speaker": "kaido", "text": "The sensor responds to light!"},
+				{"speaker": "kaido", "text": "Now you can detect shadows."},
+			]
+		"led_chain":
+			return [
+				{"speaker": "kaido", "text": "All LEDs light up in sequence!"},
+				{"speaker": "kaido", "text": "The signal chain is ready."},
+			]
+		_:
+			return [
+				{"speaker": "kaido", "text": "Circuit complete!"},
+			]
+
+func get_expected_circuit_for_schematic(schematic_id: String) -> Dictionary:
+	"""Get the expected circuit definition for detection server."""
+	match schematic_id:
+		"led_lamp":
+			return {
+				"name": "LED Flashlight",
+				"quest_id": "led_lamp",
+				"components": [
+					{"type": "led", "label": "LED1"},
+					{"type": "resistor", "value": "330ohm", "label": "R1"}
+				],
+				"topology": "series"
+			}
+		"buzzer_alarm":
+			return {
+				"name": "Silent Buzzer Alarm",
+				"quest_id": "buzzer_alarm",
+				"components": [
+					{"type": "buzzer", "label": "BZ1"},
+					{"type": "button", "label": "SW1"},
+					{"type": "resistor", "value": "100ohm", "label": "R1"}
+				],
+				"topology": "series"
+			}
+		"dimmer":
+			return {
+				"name": "Light Dimmer",
+				"quest_id": "dimmer",
+				"components": [
+					{"type": "potentiometer", "label": "POT1"},
+					{"type": "led", "label": "LED1"},
+					{"type": "resistor", "value": "330ohm", "label": "R1"}
+				],
+				"topology": "series"
+			}
+		"light_sensor":
+			return {
+				"name": "Light Sensor",
+				"quest_id": "light_sensor",
+				"components": [
+					{"type": "photoresistor", "label": "LDR1"},
+					{"type": "led", "label": "LED1"},
+					{"type": "resistor", "value": "10k", "label": "R1"}
+				],
+				"topology": "voltage_divider"
+			}
+		"led_chain":
+			return {
+				"name": "LED Signal Chain",
+				"quest_id": "led_chain",
+				"components": [
+					{"type": "led", "label": "LED1"},
+					{"type": "led", "label": "LED2"},
+					{"type": "led", "label": "LED3"},
+					{"type": "resistor", "value": "100ohm", "label": "R1"}
+				],
+				"topology": "series"
+			}
+		_:
+			return {
+				"name": schematic_id,
+				"quest_id": schematic_id,
+				"components": [],
+				"topology": "simple"
+			}
+
+func get_circuit_build_hints(schematic_id: String) -> Array:
+	"""Get build hints/tips for a specific circuit (shown in BUILD_SCREEN)."""
+	match schematic_id:
+		"led_lamp":
+			return [
+				{"speaker": "kaido", "text": "Time to build! Match the schematic."},
+				{"speaker": "kaido", "text": "Long LED leg goes to positive (+)."},
+				{"speaker": "kaido", "text": "Press Triangle to check your circuit."},
+			]
+		"buzzer_alarm":
+			return [
+				{"speaker": "kaido", "text": "This one has a button switch!"},
+				{"speaker": "kaido", "text": "The buzzer's (+) faces the power rail."},
+				{"speaker": "kaido", "text": "Press Triangle when ready to test."},
+			]
+		"dimmer":
+			return [
+				{"speaker": "kaido", "text": "A potentiometer! Three legs to wire."},
+				{"speaker": "kaido", "text": "Middle leg controls the LED brightness."},
+				{"speaker": "kaido", "text": "Press Triangle to verify your circuit."},
+			]
+		"light_sensor":
+			return [
+				{"speaker": "kaido", "text": "The photoresistor changes with light!"},
+				{"speaker": "kaido", "text": "It forms a voltage divider with R1."},
+				{"speaker": "kaido", "text": "Press Triangle when you're done."},
+			]
+		"led_chain":
+			return [
+				{"speaker": "kaido", "text": "Three LEDs in series - same direction!"},
+				{"speaker": "kaido", "text": "One resistor protects all three."},
+				{"speaker": "kaido", "text": "Press Triangle to check the chain."},
+			]
+		_:
+			return [
+				{"speaker": "kaido", "text": "Build the circuit from the schematic."},
+				{"speaker": "kaido", "text": "Press Triangle when ready to check."},
+			]
+
+func load_music():
+	# Create AudioStreamPlayer for music
+	music_player = AudioStreamPlayer.new()
+	music_player.bus = "Master"
+	music_player.volume_db = -10  # Slightly quieter background music
+	add_child(music_player)
+	# Connect finished signal for looping
+	music_player.finished.connect(_on_music_finished)
+
+	# Load all music tracks
+	var track_files = {
+		"title": "xDeviruchi - Title Theme .wav",
+		"intro": "xDeviruchi - And The Journey Begins .wav",
+		"exploration": "xDeviruchi - Exploring The Unknown.wav",
+		"town": "xDeviruchi - Take some rest and eat some food!.wav",
+		"dungeon": "xDeviruchi - Mysterious Dungeon.wav",
+		"pre_battle": "xDeviruchi - Prepare for Battle! .wav",
+		"battle": "xDeviruchi - Decisive Battle.wav",
+		"minigame": "xDeviruchi - Minigame .wav",
+		"cave": "xDeviruchi - The Icy Cave .wav",
+		"ending": "xDeviruchi - The Final of The Fantasy.wav"
+	}
+
+	for key in track_files:
+		var path = MUSIC_PATH + track_files[key]
+		if ResourceLoader.exists(path):
+			music_tracks[key] = load(path)
+			print("[OK] Loaded music: ", key)
+		else:
+			print("[WARN] Music not found: ", path)
+
+func play_music_for_state():
+	var target_track = ""
+
+	match current_mode:
+		GameMode.TITLE_SCREEN:
+			target_track = "title"
+		GameMode.INTRO:
+			target_track = "intro"
+		GameMode.EXPLORATION:
+			match current_area:
+				Area.TOWN_CENTER:
+					target_track = "town"
+				_:
+					target_track = "exploration"
+		GameMode.SHED_INTERIOR, GameMode.RADIOTOWER_INTERIOR:
+			target_track = "dungeon"
+		GameMode.COMBAT:
+			target_track = "battle"
+		GameMode.STAMPEDE:
+			target_track = "minigame"
+		GameMode.ENDING_CUTSCENE, GameMode.REGION_COMPLETE, GameMode.FEEDBACK_SCREEN:
+			target_track = "ending"
+		GameMode.SHOP_INTERIOR, GameMode.BAKERY_INTERIOR, GameMode.TOWNHALL_INTERIOR:
+			target_track = "town"
+		_:
+			target_track = "exploration"
+
+	# Only change music if it's different
+	if target_track != current_music and music_tracks.has(target_track):
+		current_music = target_track
+		music_player.stream = music_tracks[target_track]
+		music_player.play()
+
+func _on_music_finished():
+	# Loop the current music track
+	if music_player and music_player.stream:
+		music_player.play()
 
 func load_sprites():
 	if ResourceLoader.exists(MYSTIC_PATH + "characters/player.png"):
@@ -879,7 +2116,10 @@ func load_sprites():
 	
 	# Load grandmother animation frames
 	load_grandmother_animations()
-	
+
+	# Load Farmer Wen animation frames
+	load_farmer_wen_animations()
+
 	if ResourceLoader.exists(MYSTIC_PATH + "tilesets/grass.png"):
 		tex_grass = load(MYSTIC_PATH + "tilesets/grass.png")
 	
@@ -905,25 +2145,48 @@ func load_sprites():
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/grandmother_portrait.png"):
 		tex_grandmother_portrait = load(SPROUT_PATH + "Characters/grandmother_portrait.png")
 	
-	# Load robot enemy sprite from Ninja Adventure
-	var robot_paths = [
-		NINJA_PATH + "Robot/Robot.png",
-		NINJA_PATH + "Robot/SpriteSheet.png",
-		NINJA_PATH + "Robots/Robot.png",
-		"res://Ninja Adventure - Asset Pack/Actor/Enemies/Robot/Robot.png",
-		"res://Ninja Adventure - Asset Pack/Actor/Enemies/Robot/SpriteSheet.png",
-		"res://Ninja Adventure - Asset Pack/Enemies/Robot/Robot.png",
-	]
-	for path in robot_paths:
-		if ResourceLoader.exists(path):
-			tex_robot_enemy = load(path)
-			break
-	
+	# Load heavy robot animations (grey/black/red)
+	load_heavy_robot_animations()
+
 	# Load tileset textures
 	# Load Ninja Adventure TilesetFloor for ground (384x336, 16x16 tiles)
 	var ninja_tileset_path = "res://Ninja Adventure - Asset Pack/Backgrounds/Tilesets/TilesetFloor.png"
 	if ResourceLoader.exists(ninja_tileset_path):
 		tex_ninja_field = load(ninja_tileset_path)
+
+	# Load interior tilesets
+	var interior_base = "res://Ninja Adventure - Asset Pack/Backgrounds/Tilesets/Interior/"
+	if ResourceLoader.exists(interior_base + "TilesetInteriorFloor.png"):
+		tex_interior_floor = load(interior_base + "TilesetInteriorFloor.png")
+		print("[OK] Interior floor tileset loaded")
+	if ResourceLoader.exists(interior_base + "TilesetWallSimple.png"):
+		tex_interior_wall = load(interior_base + "TilesetWallSimple.png")
+		print("[OK] Interior wall tileset loaded")
+	if ResourceLoader.exists(interior_base + "TilesetInterior.png"):
+		tex_interior_elements = load(interior_base + "TilesetInterior.png")
+		print("[OK] Interior elements tileset loaded")
+
+	# Load house/furniture tileset
+	var house_tileset_path = "res://Ninja Adventure - Asset Pack/Backgrounds/Tilesets/TilesetHouse.png"
+	if ResourceLoader.exists(house_tileset_path):
+		tex_house_tileset = load(house_tileset_path)
+		print("[OK] House tileset loaded")
+
+	# Load flag sprites for bunting
+	var flag_colors = ["Red", "Blue", "Yellow", "Green", "White"]
+	for flag_color in flag_colors:
+		var flag_path = "res://Ninja Adventure - Asset Pack/Backgrounds/Animated/Flag/Flag" + flag_color + "16x16.png"
+		if ResourceLoader.exists(flag_path):
+			tex_flags.append(load(flag_path))
+	if tex_flags.size() > 0:
+		print("[OK] Flag sprites loaded: " + str(tex_flags.size()))
+
+	# Load NPC sprites
+	load_npc_sprites()
+
+	# Initialize roaming NPCs
+	init_roaming_npcs()
+
 	if ResourceLoader.exists(TILESET_PATH + "Grass.png"):
 		tex_grass = load(TILESET_PATH + "Grass.png")
 	if ResourceLoader.exists(TILESET_PATH + "Tilled_Dirt.png"):
@@ -960,7 +2223,25 @@ func load_sprites():
 	# Load chicken house
 	if ResourceLoader.exists(OBJECTS_PATH + "Free_Chicken_House.png"):
 		tex_chicken_house = load(OBJECTS_PATH + "Free_Chicken_House.png")
-	
+
+	# Load farmhouse with grass
+	if ResourceLoader.exists(OBJECTS_PATH + "farmhouse_with_grass.png"):
+		tex_farmhouse = load(OBJECTS_PATH + "farmhouse_with_grass.png")
+
+	# Load town buildings
+	if ResourceLoader.exists(OBJECTS_PATH + "townhall_128.png"):
+		tex_townhall = load(OBJECTS_PATH + "townhall_128.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "shop_128.png"):
+		tex_shop = load(OBJECTS_PATH + "shop_128.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "bakery_128.png"):
+		tex_bakery = load(OBJECTS_PATH + "bakery_128.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "well_64.png"):
+		tex_well = load(OBJECTS_PATH + "well_64.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "fountain.png"):
+		tex_fountain = load(OBJECTS_PATH + "fountain.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "street_lamp.png"):
+		tex_street_lamp = load(OBJECTS_PATH + "street_lamp.png")
+
 	# Load shed
 	if ResourceLoader.exists(OBJECTS_PATH + "shed.png"):
 		tex_shed = load(OBJECTS_PATH + "shed.png")
@@ -984,8 +2265,8 @@ func load_sprites():
 	# Load gadget icons
 	if ResourceLoader.exists(OBJECTS_PATH + "flashlight.png"):
 		tex_gadget_flashlight = load(OBJECTS_PATH + "flashlight.png")
-	if ResourceLoader.exists(OBJECTS_PATH + "dimmer.png"):
-		tex_gadget_dimmer = load(OBJECTS_PATH + "dimmer.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "light_dimmer.png"):
+		tex_gadget_dimmer = load(OBJECTS_PATH + "light_dimmer.png")
 	if ResourceLoader.exists(OBJECTS_PATH + "led_chain.png"):
 		tex_gadget_led_chain = load(OBJECTS_PATH + "led_chain.png")
 	if ResourceLoader.exists(OBJECTS_PATH + "light_sensor.png"):
@@ -994,6 +2275,12 @@ func load_sprites():
 		tex_gadget_buzzer = load(OBJECTS_PATH + "buzzer.png")
 	if ResourceLoader.exists(OBJECTS_PATH + "tumbleweed.png"):
 		tex_tumbleweed = load(OBJECTS_PATH + "tumbleweed.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "boulder.png"):
+		tex_boulder = load(OBJECTS_PATH + "boulder.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "game_map_0002.png"):
+		tex_world_map = load(OBJECTS_PATH + "game_map_0002.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "qr_code.png"):
+		tex_qr_code = load(OBJECTS_PATH + "qr_code.png")
 
 	# Load Ninja Adventure animals
 	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Cat/SpriteSheet.png"):
@@ -1078,12 +2365,22 @@ func load_sprites():
 		tex_farmer_wen = load(SPROUT_PATH + "Characters/farmer_wen.png")
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/farmer_wen_portrait.png"):
 		tex_farmer_wen_portrait = load(SPROUT_PATH + "Characters/farmer_wen_portrait.png")
-	
-	# Load Kid Milo sprite
+	if ResourceLoader.exists(OBJECTS_PATH + "farmer_wen_tractor.png"):
+		tex_farmer_wen_tractor = load(OBJECTS_PATH + "farmer_wen_tractor.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "irrigation.png"):
+		tex_irrigation = load(OBJECTS_PATH + "irrigation.png")
+	if ResourceLoader.exists(OBJECTS_PATH + "corn.png"):
+		tex_corn = load(OBJECTS_PATH + "corn.png")
+		print("[OK] Corn sprite loaded")
+
+	# Load Kid Milo sprite (legacy)
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/kid_milo.png"):
 		tex_kid_milo = load(SPROUT_PATH + "Characters/kid_milo.png")
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/kid_milo_portrait.png"):
 		tex_kid_milo_portrait = load(SPROUT_PATH + "Characters/kid_milo_portrait.png")
+
+	# Load Milo sprites from milo_villager folder
+	load_milo_sprites()
 	
 	# Load old family photo
 	if ResourceLoader.exists(SPROUT_PATH + "Characters/old_family_photo.png"):
@@ -1098,6 +2395,14 @@ func load_sprites():
 		tex_grass_tile_dark = load(TILESET_PATH + "grass_tile_dark.png")
 	if ResourceLoader.exists(TILESET_PATH + "dirt_tile.png"):
 		tex_dirt_tile = load(TILESET_PATH + "dirt_tile.png")
+	if ResourceLoader.exists(TILESET_PATH + "dark_red_tile.png"):
+		tex_dark_red_tile = load(TILESET_PATH + "dark_red_tile.png")
+	if ResourceLoader.exists(TILESET_PATH + "floor_tile.png"):
+		tex_floor_tile = load(TILESET_PATH + "floor_tile.png")
+	if ResourceLoader.exists(TILESET_PATH + "light_brick_tile.png"):
+		tex_light_brick_tile = load(TILESET_PATH + "light_brick_tile.png")
+	if ResourceLoader.exists(TILESET_PATH + "grey_brick_tile.png"):
+		tex_grey_brick_tile = load(TILESET_PATH + "grey_brick_tile.png")
 
 	# A1: Add Pig to animals
 	if ResourceLoader.exists(NINJA_ANIMALS_PATH + "Pig/SpriteSheet.png"):
@@ -1116,7 +2421,13 @@ func load_sprites():
 		tex_schematic_series_leds = load(SPROUT_PATH + "Schematics/schematic_series_leds.png")
 	if ResourceLoader.exists(SPROUT_PATH + "Schematics/schematic_dimmer.png"):
 		tex_schematic_dimmer = load(SPROUT_PATH + "Schematics/schematic_dimmer.png")
-	
+	if ResourceLoader.exists(SPROUT_PATH + "Schematics/button_indicator.png"):
+		tex_schematic_button_indicator = load(SPROUT_PATH + "Schematics/button_indicator.png")
+	if ResourceLoader.exists(SPROUT_PATH + "Schematics/diode_OR_gate.png"):
+		tex_schematic_or_gate = load(SPROUT_PATH + "Schematics/diode_OR_gate.png")
+	if ResourceLoader.exists(SPROUT_PATH + "Schematics/farmer_wen_slide_switch.png"):
+		tex_schematic_tractor_switch = load(SPROUT_PATH + "Schematics/farmer_wen_slide_switch.png")
+
 	# Initialize roaming animals for each area
 	init_roaming_animals()
 	init_tumbleweeds()
@@ -1132,13 +2443,30 @@ func load_player_animations():
 			var path = PLAYER_ANIM_PATH + "animations/walk/" + dir + "/frame_%03d.png" % i
 			if ResourceLoader.exists(path):
 				frames.append(load(path))
-		
+
 		match dir:
 			"south": tex_player_walk_south = frames
 			"north": tex_player_walk_north = frames
 			"east": tex_player_walk_east = frames
 			"west": tex_player_walk_west = frames
-	
+
+	# Load jump animations (running-jump folder - 8 frames each direction)
+	for dir in directions:
+		var frames: Array[Texture2D] = []
+		for i in range(8):
+			var path = PLAYER_ANIM_PATH + "animations/running-jump/" + dir + "/frame_%03d.png" % i
+			if ResourceLoader.exists(path):
+				frames.append(load(path))
+
+		match dir:
+			"south": tex_player_jump_south = frames
+			"north": tex_player_jump_north = frames
+			"east": tex_player_jump_east = frames
+			"west": tex_player_jump_west = frames
+
+	if tex_player_jump_south.size() > 0:
+		print("[OK] Player jump animations loaded: ", tex_player_jump_south.size(), " frames per direction")
+
 	# Load attack/punch animations (cross-punch folder)
 	for dir in directions:
 		var frames: Array[Texture2D] = []
@@ -1154,8 +2482,42 @@ func load_player_animations():
 			"west": tex_player_attack_west = frames
 	
 	if tex_player_attack_south.size() > 0:
-		print("âœ“ Player attack animations loaded: ", tex_player_attack_south.size(), " frames per direction")
-	
+		print("[OK] Player attack animations loaded: ", tex_player_attack_south.size(), " frames per direction")
+
+	# Load fight stance idle animations (8 frames each direction)
+	for dir in directions:
+		var frames: Array[Texture2D] = []
+		for i in range(8):
+			var path = PLAYER_ANIM_PATH + "animations/fight-stance-idle-8-frames/" + dir + "/frame_%03d.png" % i
+			if ResourceLoader.exists(path):
+				frames.append(load(path))
+
+		match dir:
+			"south": tex_player_fight_idle_south = frames
+			"north": tex_player_fight_idle_north = frames
+			"east": tex_player_fight_idle_east = frames
+			"west": tex_player_fight_idle_west = frames
+
+	if tex_player_fight_idle_south.size() > 0:
+		print("[OK] Player fight stance idle loaded: ", tex_player_fight_idle_south.size(), " frames per direction")
+
+	# Load high kick animations (7 frames each direction)
+	for dir in directions:
+		var frames: Array[Texture2D] = []
+		for i in range(7):
+			var path = PLAYER_ANIM_PATH + "animations/high-kick/" + dir + "/frame_%03d.png" % i
+			if ResourceLoader.exists(path):
+				frames.append(load(path))
+
+		match dir:
+			"south": tex_player_high_kick_south = frames
+			"north": tex_player_high_kick_north = frames
+			"east": tex_player_high_kick_east = frames
+			"west": tex_player_high_kick_west = frames
+
+	if tex_player_high_kick_south.size() > 0:
+		print("[OK] Player high kick animations loaded: ", tex_player_high_kick_south.size(), " frames per direction")
+
 	# Load idle/rotation sprites
 	if ResourceLoader.exists(PLAYER_ANIM_PATH + "rotations/south.png"):
 		tex_player_idle_south = load(PLAYER_ANIM_PATH + "rotations/south.png")
@@ -1169,9 +2531,9 @@ func load_player_animations():
 	# Check if animations loaded successfully
 	if tex_player_walk_south.size() > 0:
 		player_anim_loaded = true
-		print("âœ“ Player animations loaded: ", tex_player_walk_south.size(), " frames per direction")
+		print("[OK] Player animations loaded: ", tex_player_walk_south.size(), " frames per direction")
 	else:
-		print("âœ— Player animations not found at: " + PLAYER_ANIM_PATH)
+		print("[X] Player animations not found at: " + PLAYER_ANIM_PATH)
 
 func load_grandmother_animations():
 	# Load walk animations (6 frames each direction)
@@ -1203,9 +2565,137 @@ func load_grandmother_animations():
 	# Check if animations loaded successfully
 	if tex_grandmother_walk_south.size() > 0:
 		grandmother_anim_loaded = true
-		print("âœ“ Grandmother animations loaded: ", tex_grandmother_walk_south.size(), " frames per direction")
+		print("[OK] Grandmother animations loaded: ", tex_grandmother_walk_south.size(), " frames per direction")
 	else:
-		print("âœ— Grandmother animations not found at: " + GRANDMOTHER_ANIM_PATH)
+		print("[X] Grandmother animations not found at: " + GRANDMOTHER_ANIM_PATH)
+
+func load_farmer_wen_animations():
+	# Load walk animations (6 frames each direction)
+	var directions = ["south", "north", "east", "west"]
+
+	for dir in directions:
+		var frames: Array[Texture2D] = []
+		for i in range(8):  # Try up to 8 frames
+			var path = FARMER_WEN_ANIM_PATH + "animations/walk-1/" + dir + "/frame_%03d.png" % i
+			if ResourceLoader.exists(path):
+				frames.append(load(path))
+
+		match dir:
+			"south": tex_farmer_wen_walk_south = frames
+			"north": tex_farmer_wen_walk_north = frames
+			"east": tex_farmer_wen_walk_east = frames
+			"west": tex_farmer_wen_walk_west = frames
+
+	# Load idle/rotation sprites
+	if ResourceLoader.exists(FARMER_WEN_ANIM_PATH + "rotations/south.png"):
+		tex_farmer_wen_idle_south = load(FARMER_WEN_ANIM_PATH + "rotations/south.png")
+	if ResourceLoader.exists(FARMER_WEN_ANIM_PATH + "rotations/north.png"):
+		tex_farmer_wen_idle_north = load(FARMER_WEN_ANIM_PATH + "rotations/north.png")
+	if ResourceLoader.exists(FARMER_WEN_ANIM_PATH + "rotations/east.png"):
+		tex_farmer_wen_idle_east = load(FARMER_WEN_ANIM_PATH + "rotations/east.png")
+	if ResourceLoader.exists(FARMER_WEN_ANIM_PATH + "rotations/west.png"):
+		tex_farmer_wen_idle_west = load(FARMER_WEN_ANIM_PATH + "rotations/west.png")
+
+	# Check if animations loaded successfully
+	if tex_farmer_wen_walk_south.size() > 0:
+		farmer_wen_anim_loaded = true
+		print("Farmer Wen animations loaded: ", tex_farmer_wen_walk_south.size(), " frames per direction")
+	else:
+		print("Farmer Wen animations not found at: " + FARMER_WEN_ANIM_PATH)
+
+func load_milo_sprites():
+	# Load idle/rotation sprites
+	if ResourceLoader.exists(MILO_PATH + "rotations/south.png"):
+		tex_milo_south = load(MILO_PATH + "rotations/south.png")
+	if ResourceLoader.exists(MILO_PATH + "rotations/north.png"):
+		tex_milo_north = load(MILO_PATH + "rotations/north.png")
+	if ResourceLoader.exists(MILO_PATH + "rotations/east.png"):
+		tex_milo_east = load(MILO_PATH + "rotations/east.png")
+	if ResourceLoader.exists(MILO_PATH + "rotations/west.png"):
+		tex_milo_west = load(MILO_PATH + "rotations/west.png")
+
+	# Load running animations (4 frames each direction)
+	var directions = ["south", "north", "east", "west"]
+	for dir in directions:
+		var frames: Array[Texture2D] = []
+		for i in range(4):
+			var path = MILO_PATH + "animations/running-4-frames/" + dir + "/frame_%03d.png" % i
+			if ResourceLoader.exists(path):
+				frames.append(load(path))
+
+		match dir:
+			"south": tex_milo_run_south = frames
+			"north": tex_milo_run_north = frames
+			"east": tex_milo_run_east = frames
+			"west": tex_milo_run_west = frames
+
+	# Check if loaded
+	if tex_milo_south:
+		print("[OK] Milo sprites loaded from milo_villager folder")
+	if tex_milo_run_south.size() > 0:
+		print("[OK] Milo running animations loaded: ", tex_milo_run_south.size(), " frames per direction")
+
+func load_heavy_robot_animations():
+	# Load idle/rotation sprites
+	if ResourceLoader.exists(HEAVY_ROBOT_PATH + "rotations/south.png"):
+		tex_heavy_robot_idle_south = load(HEAVY_ROBOT_PATH + "rotations/south.png")
+	if ResourceLoader.exists(HEAVY_ROBOT_PATH + "rotations/north.png"):
+		tex_heavy_robot_idle_north = load(HEAVY_ROBOT_PATH + "rotations/north.png")
+	if ResourceLoader.exists(HEAVY_ROBOT_PATH + "rotations/east.png"):
+		tex_heavy_robot_idle_east = load(HEAVY_ROBOT_PATH + "rotations/east.png")
+	if ResourceLoader.exists(HEAVY_ROBOT_PATH + "rotations/west.png"):
+		tex_heavy_robot_idle_west = load(HEAVY_ROBOT_PATH + "rotations/west.png")
+
+	# Load walking animations (6 frames each direction)
+	var directions = ["south", "north", "east", "west"]
+	for dir in directions:
+		var walk_frames: Array[Texture2D] = []
+		for i in range(6):
+			var path = HEAVY_ROBOT_PATH + "animations/walking-9/" + dir + "/frame_%03d.png" % i
+			if ResourceLoader.exists(path):
+				walk_frames.append(load(path))
+		match dir:
+			"south": tex_heavy_robot_walk_south = walk_frames
+			"north": tex_heavy_robot_walk_north = walk_frames
+			"east": tex_heavy_robot_walk_east = walk_frames
+			"west": tex_heavy_robot_walk_west = walk_frames
+
+	# Load jab/punch animations (3 frames each direction)
+	for dir in directions:
+		var jab_frames: Array[Texture2D] = []
+		for i in range(3):
+			var path = HEAVY_ROBOT_PATH + "animations/lead-jab/" + dir + "/frame_%03d.png" % i
+			if ResourceLoader.exists(path):
+				jab_frames.append(load(path))
+		match dir:
+			"south": tex_heavy_robot_jab_south = jab_frames
+			"north": tex_heavy_robot_jab_north = jab_frames
+			"east": tex_heavy_robot_jab_east = jab_frames
+			"west": tex_heavy_robot_jab_west = jab_frames
+
+	# Load fireball/special attack animations (6 frames each direction)
+	for dir in directions:
+		var fireball_frames: Array[Texture2D] = []
+		for i in range(6):
+			var path = HEAVY_ROBOT_PATH + "animations/fireball/" + dir + "/frame_%03d.png" % i
+			if ResourceLoader.exists(path):
+				fireball_frames.append(load(path))
+		match dir:
+			"south": tex_heavy_robot_fireball_south = fireball_frames
+			"north": tex_heavy_robot_fireball_north = fireball_frames
+			"east": tex_heavy_robot_fireball_east = fireball_frames
+			"west": tex_heavy_robot_fireball_west = fireball_frames
+
+	# Check if loaded
+	if tex_heavy_robot_idle_south:
+		heavy_robot_anim_loaded = true
+		print("[OK] Heavy robot idle sprites loaded")
+	if tex_heavy_robot_walk_south.size() > 0:
+		print("[OK] Heavy robot walk animations loaded: ", tex_heavy_robot_walk_south.size(), " frames per direction")
+	if tex_heavy_robot_jab_south.size() > 0:
+		print("[OK] Heavy robot jab animations loaded: ", tex_heavy_robot_jab_south.size(), " frames per direction")
+	if tex_heavy_robot_fireball_south.size() > 0:
+		print("[OK] Heavy robot fireball animations loaded: ", tex_heavy_robot_fireball_south.size(), " frames per direction")
 
 # ============================================
 # GRANDMOTHER PACING & ANIMATION
@@ -1297,18 +2787,507 @@ func update_grandmother(delta: float):
 				set_quest("Fix Irrigation")
 	
 	# Standard movement toward target (for quest movement like leading to irrigation)
-	if grandmother_pos.distance_to(grandmother_target) > 5:
+	if grandmother_target != Vector2.ZERO and grandmother_pos.distance_to(grandmother_target) > 5:
 		var dir = (grandmother_target - grandmother_pos).normalized()
 		grandmother_pos += dir * 40 * delta
 		grandmother_is_walking = true
-		
+
 		# Update facing
 		if abs(dir.x) > abs(dir.y):
 			grandmother_facing = "right" if dir.x > 0 else "left"
 		else:
 			grandmother_facing = "down" if dir.y > 0 else "up"
-	else:
+	elif grandmother_target != Vector2.ZERO:
 		grandmother_is_walking = false
+
+		# Trigger dialogue when grandmother arrives at irrigation (quest stage 7)
+		if quest_stage == 7 and not grandmother_arrived_at_irrigation and not in_dialogue:
+			grandmother_arrived_at_irrigation = true
+			# Face the irrigation system
+			grandmother_facing = "down"
+			dialogue_queue = [
+				{"speaker": "grandmother", "text": "Here it is. The irrigation control system."},
+				{"speaker": "grandmother", "text": "The pump motor needs precise voltage control."},
+				{"speaker": "grandmother", "text": "Too much power floods the crops. Too little and they die."},
+				{"speaker": "grandmother", "text": "Go take a look. Maybe Kaido can figure out what's wrong."},
+				{"speaker": "quest", "text": "Inspect Irrigation System"},
+			]
+			next_dialogue()
+
+# ============================================
+# NPC SPRITE LOADING
+# ============================================
+
+func load_npc_sprites():
+	# Load NPC sprites from custom sprite folders with full directional and animation support
+	# Note: Farmer Wen has load_farmer_wen_animations(), Milo has load_milo_sprites()
+
+	# NPC sprite folder paths
+	var farmer_mae_path = "res://Farmer_Mae_Middle-aged_woman_sturdy_build._Hair_ti/"
+	var old_chen_path = "res://Old_Chen_Elderly_Asian_man_70s._Long_thin_white_be/"
+	var young_taro_path = "res://Young_Taro_Boy_6-7_years_old._Bowl_cut_black_hair./"
+	var fisher_bo_path = "res://Fisher_Bo_Middle-aged_man_stocky_build._Sleeveless/"
+	var old_mira_path = "res://Old_Mira_Elderly_woman_small_and_hunched._White_ha/"
+	var elder_sato_path = "res://Elder_Sato_Old_man_village_leader_presence._White/"
+	var child_mei_path = "res://Child_Mei_Girl_8-9_years_old._Black_hair_in_pigtai/"
+	var guard_tanaka_path = "res://Guard_Tanaka_Young_adult_man_early_20s._Simple_gua/"
+	var shopkeeper_bot_path = "res://Shopkeeper_Bot-3000_Friendly_robot_boxy_retro_desi/"
+	var mayor_hiroshi_path = "res://Mayor_Hiroshi_Middle-aged_man_formal_but_approacha/"
+	var baker_bot_path = "res://Baker_Bot-7_Robot_with_chef_personality._Round_fri/"
+
+	# Load all NPCs with rotations and walk animations
+	_load_npc_rotations(farmer_mae_path, "farmer_mae")
+	_load_npc_walk_anims(farmer_mae_path, "farmer_mae")
+
+	_load_npc_rotations(old_chen_path, "old_chen")
+	_load_npc_walk_anims(old_chen_path, "old_chen")
+
+	_load_npc_rotations(young_taro_path, "young_taro")
+	_load_npc_walk_anims(young_taro_path, "young_taro")
+
+	_load_npc_rotations(fisher_bo_path, "fisher_bo")
+	_load_npc_walk_anims(fisher_bo_path, "fisher_bo")
+
+	_load_npc_rotations(old_mira_path, "old_mira")
+	_load_npc_walk_anims(old_mira_path, "old_mira")
+
+	_load_npc_rotations(elder_sato_path, "elder_sato")
+	_load_npc_walk_anims(elder_sato_path, "elder_sato")
+
+	_load_npc_rotations(child_mei_path, "child_mei")
+	_load_npc_walk_anims(child_mei_path, "child_mei")
+
+	_load_npc_rotations(guard_tanaka_path, "guard_tanaka")
+	_load_npc_walk_anims(guard_tanaka_path, "guard_tanaka")
+
+	_load_npc_rotations(shopkeeper_bot_path, "shopkeeper_bot")
+	_load_npc_walk_anims(shopkeeper_bot_path, "shopkeeper_bot")
+
+	_load_npc_rotations(mayor_hiroshi_path, "mayor_hiroshi")
+	_load_npc_walk_anims(mayor_hiroshi_path, "mayor_hiroshi")
+
+	_load_npc_rotations(baker_bot_path, "baker_bot")
+	_load_npc_walk_anims(baker_bot_path, "baker_bot")
+
+	npc_anims_loaded = true
+	print("[INFO] NPC sprites loaded with full directional and animation support")
+
+# Helper to load all 4 directional idle textures for an NPC
+func _load_npc_rotations(base_path: String, npc_name: String):
+	var dirs = ["south", "north", "east", "west"]
+	for dir in dirs:
+		var path = base_path + "rotations/" + dir + ".png"
+		if ResourceLoader.exists(path):
+			var tex = load(path)
+			match npc_name:
+				"farmer_mae":
+					match dir:
+						"south": tex_farmer_mae_south = tex
+						"north": tex_farmer_mae_north = tex
+						"east": tex_farmer_mae_east = tex
+						"west": tex_farmer_mae_west = tex
+				"old_chen":
+					match dir:
+						"south": tex_old_chen_south = tex
+						"north": tex_old_chen_north = tex
+						"east": tex_old_chen_east = tex
+						"west": tex_old_chen_west = tex
+				"young_taro":
+					match dir:
+						"south": tex_young_taro_south = tex
+						"north": tex_young_taro_north = tex
+						"east": tex_young_taro_east = tex
+						"west": tex_young_taro_west = tex
+				"fisher_bo":
+					match dir:
+						"south": tex_fisher_bo_south = tex
+						"north": tex_fisher_bo_north = tex
+						"east": tex_fisher_bo_east = tex
+						"west": tex_fisher_bo_west = tex
+				"old_mira":
+					match dir:
+						"south": tex_old_mira_south = tex
+						"north": tex_old_mira_north = tex
+						"east": tex_old_mira_east = tex
+						"west": tex_old_mira_west = tex
+				"elder_sato":
+					match dir:
+						"south": tex_elder_sato_south = tex
+						"north": tex_elder_sato_north = tex
+						"east": tex_elder_sato_east = tex
+						"west": tex_elder_sato_west = tex
+				"child_mei":
+					match dir:
+						"south": tex_child_mei_south = tex
+						"north": tex_child_mei_north = tex
+						"east": tex_child_mei_east = tex
+						"west": tex_child_mei_west = tex
+				"guard_tanaka":
+					match dir:
+						"south": tex_guard_tanaka_south = tex
+						"north": tex_guard_tanaka_north = tex
+						"east": tex_guard_tanaka_east = tex
+						"west": tex_guard_tanaka_west = tex
+				"shopkeeper_bot":
+					match dir:
+						"south": tex_shopkeeper_bot_south = tex
+						"north": tex_shopkeeper_bot_north = tex
+						"east": tex_shopkeeper_bot_east = tex
+						"west": tex_shopkeeper_bot_west = tex
+				"mayor_hiroshi":
+					match dir:
+						"south": tex_mayor_hiroshi_south = tex
+						"north": tex_mayor_hiroshi_north = tex
+						"east": tex_mayor_hiroshi_east = tex
+						"west": tex_mayor_hiroshi_west = tex
+				"baker_bot":
+					match dir:
+						"south": tex_baker_bot_south = tex
+						"north": tex_baker_bot_north = tex
+						"east": tex_baker_bot_east = tex
+						"west": tex_baker_bot_west = tex
+	print("[OK] Loaded " + npc_name + " rotations")
+
+# Helper to load walk animation frames for all 4 directions
+func _load_npc_walk_anims(base_path: String, npc_name: String):
+	var dirs = ["south", "north", "east", "west"]
+	# Try both "walk" and "walking" folder names
+	var walk_folders = ["walk", "walking"]
+	for dir in dirs:
+		var frames: Array[Texture2D] = []
+		for walk_folder in walk_folders:
+			if frames.size() > 0:
+				break  # Already found frames
+			for i in range(8):  # Try up to 8 frames
+				var path = base_path + "animations/" + walk_folder + "/" + dir + "/frame_%03d.png" % i
+				if ResourceLoader.exists(path):
+					frames.append(load(path))
+		if frames.size() > 0:
+			match npc_name:
+				"farmer_mae":
+					match dir:
+						"south": tex_farmer_mae_walk_south = frames
+						"north": tex_farmer_mae_walk_north = frames
+						"east": tex_farmer_mae_walk_east = frames
+						"west": tex_farmer_mae_walk_west = frames
+				"old_chen":
+					match dir:
+						"south": tex_old_chen_walk_south = frames
+						"north": tex_old_chen_walk_north = frames
+						"east": tex_old_chen_walk_east = frames
+						"west": tex_old_chen_walk_west = frames
+				"young_taro":
+					match dir:
+						"south": tex_young_taro_walk_south = frames
+						"north": tex_young_taro_walk_north = frames
+						"east": tex_young_taro_walk_east = frames
+						"west": tex_young_taro_walk_west = frames
+				"fisher_bo":
+					match dir:
+						"south": tex_fisher_bo_walk_south = frames
+						"north": tex_fisher_bo_walk_north = frames
+						"east": tex_fisher_bo_walk_east = frames
+						"west": tex_fisher_bo_walk_west = frames
+				"old_mira":
+					match dir:
+						"south": tex_old_mira_walk_south = frames
+						"north": tex_old_mira_walk_north = frames
+						"east": tex_old_mira_walk_east = frames
+						"west": tex_old_mira_walk_west = frames
+				"elder_sato":
+					match dir:
+						"south": tex_elder_sato_walk_south = frames
+						"north": tex_elder_sato_walk_north = frames
+						"east": tex_elder_sato_walk_east = frames
+						"west": tex_elder_sato_walk_west = frames
+				"child_mei":
+					match dir:
+						"south": tex_child_mei_walk_south = frames
+						"north": tex_child_mei_walk_north = frames
+						"east": tex_child_mei_walk_east = frames
+						"west": tex_child_mei_walk_west = frames
+				"guard_tanaka":
+					match dir:
+						"south": tex_guard_tanaka_walk_south = frames
+						"north": tex_guard_tanaka_walk_north = frames
+						"east": tex_guard_tanaka_walk_east = frames
+						"west": tex_guard_tanaka_walk_west = frames
+				"shopkeeper_bot":
+					match dir:
+						"south": tex_shopkeeper_bot_walk_south = frames
+						"north": tex_shopkeeper_bot_walk_north = frames
+						"east": tex_shopkeeper_bot_walk_east = frames
+						"west": tex_shopkeeper_bot_walk_west = frames
+				"mayor_hiroshi":
+					match dir:
+						"south": tex_mayor_hiroshi_walk_south = frames
+						"north": tex_mayor_hiroshi_walk_north = frames
+						"east": tex_mayor_hiroshi_walk_east = frames
+						"west": tex_mayor_hiroshi_walk_west = frames
+				"baker_bot":
+					match dir:
+						"south": tex_baker_bot_walk_south = frames
+						"north": tex_baker_bot_walk_north = frames
+						"east": tex_baker_bot_walk_east = frames
+						"west": tex_baker_bot_walk_west = frames
+
+# ============================================
+# ROAMING NPC SYSTEM
+# ============================================
+
+func init_roaming_npcs():
+	roaming_npcs.clear()
+
+	# Initialize roaming NPC positions
+	child_mei_pos = child_mei_home
+	child_mei_target = child_mei_home
+	child_mei_direction_timer = randf_range(2.0, 4.0)
+
+	young_taro_pos = young_taro_home
+	young_taro_target = young_taro_home
+	young_taro_direction_timer = randf_range(3.0, 6.0)
+
+	guard_tanaka_pos = guard_tanaka_patrol_points[0]
+	guard_tanaka_target = guard_tanaka_patrol_points[1]
+	guard_tanaka_patrol_index = 0
+
+	farmer_mae_pos = farmer_mae_home
+	farmer_mae_target = farmer_mae_home
+	farmer_mae_direction_timer = randf_range(4.0, 8.0)
+
+func update_roaming_npcs(delta: float):
+	npc_idle_timer += delta
+
+	# Stop all NPCs from walking during dialogue
+	if in_dialogue:
+		child_mei_is_walking = false
+		young_taro_is_walking = false
+		guard_tanaka_is_walking = false
+		farmer_mae_is_walking = false
+		return
+
+	# Update Child Mei (energetic roaming in town center, with longer pauses)
+	if current_area == Area.TOWN_CENTER:
+		child_mei_direction_timer -= delta
+		if child_mei_direction_timer <= 0:
+			# Pick new random target within roam radius
+			var offset = Vector2(randf_range(-child_mei_roam_radius, child_mei_roam_radius),
+								 randf_range(-child_mei_roam_radius, child_mei_roam_radius))
+			child_mei_target = child_mei_home + offset
+			child_mei_target.x = clamp(child_mei_target.x, 140, 440)
+			child_mei_target.y = clamp(child_mei_target.y, 120, 290)
+			child_mei_direction_timer = randf_range(5.0, 10.0)  # Longer pauses
+
+		# Move toward target
+		var dir = child_mei_target - child_mei_pos
+		if dir.length() > 5:
+			dir = dir.normalized()
+			child_mei_pos += dir * child_mei_speed * delta
+			child_mei_is_walking = true
+			if abs(dir.x) > abs(dir.y):
+				child_mei_facing = "right" if dir.x > 0 else "left"
+			else:
+				child_mei_facing = "down" if dir.y > 0 else "up"
+		else:
+			child_mei_is_walking = false
+
+		# Update Guard Tanaka (patrol pattern with longer pauses)
+		var guard_dir = guard_tanaka_target - guard_tanaka_pos
+		if guard_dir.length() > 5:
+			guard_dir = guard_dir.normalized()
+			guard_tanaka_pos += guard_dir * guard_tanaka_speed * delta
+			guard_tanaka_is_walking = true
+			if abs(guard_dir.x) > abs(guard_dir.y):
+				guard_tanaka_facing = "right" if guard_dir.x > 0 else "left"
+			else:
+				guard_tanaka_facing = "down" if guard_dir.y > 0 else "up"
+		else:
+			guard_tanaka_is_walking = false
+			guard_tanaka_patrol_timer += delta
+			if guard_tanaka_patrol_timer > 6.0:  # Longer pause at each point
+				guard_tanaka_patrol_timer = 0
+				guard_tanaka_patrol_index = (guard_tanaka_patrol_index + 1) % guard_tanaka_patrol_points.size()
+				guard_tanaka_target = guard_tanaka_patrol_points[guard_tanaka_patrol_index]
+
+	# Update Young Taro (nervous, small radius in cornfield)
+	if current_area == Area.CORNFIELD:
+		young_taro_direction_timer -= delta
+		if young_taro_direction_timer <= 0:
+			var offset = Vector2(randf_range(-young_taro_roam_radius, young_taro_roam_radius),
+								 randf_range(-young_taro_roam_radius, young_taro_roam_radius))
+			young_taro_target = young_taro_home + offset
+			young_taro_target.x = clamp(young_taro_target.x, 100, 300)
+			young_taro_target.y = clamp(young_taro_target.y, 80, 180)
+			young_taro_direction_timer = randf_range(3.0, 6.0)
+
+		var taro_dir = young_taro_target - young_taro_pos
+		if taro_dir.length() > 5:
+			taro_dir = taro_dir.normalized()
+			young_taro_pos += taro_dir * young_taro_speed * delta
+			young_taro_is_walking = true
+			if abs(taro_dir.x) > abs(taro_dir.y):
+				young_taro_facing = "right" if taro_dir.x > 0 else "left"
+			else:
+				young_taro_facing = "down" if taro_dir.y > 0 else "up"
+		else:
+			young_taro_is_walking = false
+
+		# Update Farmer Mae (purposeful roaming)
+		farmer_mae_direction_timer -= delta
+		if farmer_mae_direction_timer <= 0:
+			var offset = Vector2(randf_range(-farmer_mae_roam_radius, farmer_mae_roam_radius),
+								 randf_range(-farmer_mae_roam_radius, farmer_mae_roam_radius))
+			farmer_mae_target = farmer_mae_home + offset
+			farmer_mae_target.x = clamp(farmer_mae_target.x, 60, 250)
+			farmer_mae_target.y = clamp(farmer_mae_target.y, 120, 260)
+			farmer_mae_direction_timer = randf_range(4.0, 8.0)
+
+		var mae_dir = farmer_mae_target - farmer_mae_pos
+		if mae_dir.length() > 5:
+			mae_dir = mae_dir.normalized()
+			farmer_mae_pos += mae_dir * farmer_mae_speed * delta
+			farmer_mae_is_walking = true
+			if abs(mae_dir.x) > abs(mae_dir.y):
+				farmer_mae_facing = "right" if mae_dir.x > 0 else "left"
+			else:
+				farmer_mae_facing = "down" if mae_dir.y > 0 else "up"
+		else:
+			farmer_mae_is_walking = false
+
+	# Update animation frames for walking NPCs (8 FPS walk animation)
+	var anim_speed = 8.0  # frames per second
+	if child_mei_is_walking:
+		child_mei_anim_frame = int(continuous_timer * anim_speed) % 6
+	if young_taro_is_walking:
+		young_taro_anim_frame = int(continuous_timer * anim_speed) % 6
+	if guard_tanaka_is_walking:
+		guard_tanaka_anim_frame = int(continuous_timer * anim_speed) % 6
+	if farmer_mae_is_walking:
+		farmer_mae_anim_frame = int(continuous_timer * anim_speed) % 6
+
+# ============================================
+# NPC SPRITE DRAWING FUNCTIONS
+# ============================================
+
+# Get idle texture based on facing direction
+func _get_idle_tex(facing: String, tex_s: Texture2D, tex_n: Texture2D, tex_e: Texture2D, tex_w: Texture2D) -> Texture2D:
+	match facing:
+		"up": return tex_n if tex_n else tex_s
+		"down": return tex_s
+		"left": return tex_w if tex_w else tex_s
+		"right": return tex_e if tex_e else tex_s
+	return tex_s
+
+# Get walk animation frames based on facing direction
+func _get_walk_frames(facing: String, walk_s: Array[Texture2D], walk_n: Array[Texture2D], walk_e: Array[Texture2D], walk_w: Array[Texture2D]) -> Array[Texture2D]:
+	match facing:
+		"up": return walk_n if walk_n.size() > 0 else walk_s
+		"down": return walk_s
+		"left": return walk_w if walk_w.size() > 0 else walk_s
+		"right": return walk_e if walk_e.size() > 0 else walk_s
+	return walk_s
+
+# Draw animated NPC with directional sprites and walk animations
+func draw_animated_npc(pos: Vector2, facing: String, is_walking: bool, anim_frame: int, tex_s: Texture2D, tex_n: Texture2D, tex_e: Texture2D, tex_w: Texture2D, walk_s: Array[Texture2D], walk_n: Array[Texture2D], walk_e: Array[Texture2D], walk_w: Array[Texture2D], scale: float = 1.0):
+	var tex: Texture2D = null
+
+	if is_walking:
+		var frames = _get_walk_frames(facing, walk_s, walk_n, walk_e, walk_w)
+		if frames.size() > 0:
+			tex = frames[anim_frame % frames.size()]
+		else:
+			tex = _get_idle_tex(facing, tex_s, tex_n, tex_e, tex_w)
+	else:
+		tex = _get_idle_tex(facing, tex_s, tex_n, tex_e, tex_w)
+
+	if not tex:
+		return
+
+	# Idle bob when not walking
+	var idle_bob = 0.0 if is_walking else sin(continuous_timer * 2.0 + pos.x * 0.05) * 1.5
+	var anim_pos = Vector2(pos.x, pos.y + idle_bob)
+
+	# Shadow (scale shadow size too)
+	draw_ellipse_shape(Vector2(pos.x, pos.y + 2), Vector2(10 * scale, 4 * scale), Color(0, 0, 0, 0.25))
+
+	# Draw the full image centered on position with scale
+	var w = tex.get_width() * scale
+	var h = tex.get_height() * scale
+	var dest = Rect2(anim_pos.x - w / 2, anim_pos.y - h + 4, w, h)
+	draw_texture_rect(tex, dest, false)
+
+# Simple helper for stationary NPCs (idle south-facing with bob)
+func draw_npc_idle(pos: Vector2, tex_s: Texture2D):
+	if not tex_s:
+		return
+	var idle_bob = sin(continuous_timer * 2.0 + pos.x * 0.05) * 1.5
+	var anim_pos = Vector2(pos.x, pos.y + idle_bob)
+	draw_ellipse_shape(Vector2(pos.x, pos.y + 2), Vector2(10, 4), Color(0, 0, 0, 0.25))
+	var w = tex_s.get_width()
+	var h = tex_s.get_height()
+	var dest = Rect2(anim_pos.x - w / 2, anim_pos.y - h + 4, w, h)
+	draw_texture_rect(tex_s, dest, false)
+
+# ============================================
+# ROAMING NPC DRAW FUNCTIONS - With animations
+# ============================================
+
+func draw_child_mei():
+	draw_animated_npc(
+		child_mei_pos, child_mei_facing, child_mei_is_walking, child_mei_anim_frame,
+		tex_child_mei_south, tex_child_mei_north, tex_child_mei_east, tex_child_mei_west,
+		tex_child_mei_walk_south, tex_child_mei_walk_north, tex_child_mei_walk_east, tex_child_mei_walk_west,
+		0.8  # Smaller scale for child
+	)
+
+func draw_young_taro():
+	draw_animated_npc(
+		young_taro_pos, young_taro_facing, young_taro_is_walking, young_taro_anim_frame,
+		tex_young_taro_south, tex_young_taro_north, tex_young_taro_east, tex_young_taro_west,
+		tex_young_taro_walk_south, tex_young_taro_walk_north, tex_young_taro_walk_east, tex_young_taro_walk_west
+	)
+
+func draw_guard_tanaka():
+	draw_animated_npc(
+		guard_tanaka_pos, guard_tanaka_facing, guard_tanaka_is_walking, guard_tanaka_anim_frame,
+		tex_guard_tanaka_south, tex_guard_tanaka_north, tex_guard_tanaka_east, tex_guard_tanaka_west,
+		tex_guard_tanaka_walk_south, tex_guard_tanaka_walk_north, tex_guard_tanaka_walk_east, tex_guard_tanaka_walk_west,
+		1.2  # Larger scale for guard
+	)
+
+func draw_farmer_mae():
+	draw_animated_npc(
+		farmer_mae_pos, farmer_mae_facing, farmer_mae_is_walking, farmer_mae_anim_frame,
+		tex_farmer_mae_south, tex_farmer_mae_north, tex_farmer_mae_east, tex_farmer_mae_west,
+		tex_farmer_mae_walk_south, tex_farmer_mae_walk_north, tex_farmer_mae_walk_east, tex_farmer_mae_walk_west
+	)
+
+# ============================================
+# STATIONARY NPC DRAW FUNCTIONS
+# ============================================
+# Note: draw_farmer_wen already exists with full animation support
+
+func draw_old_chen(pos: Vector2):
+	draw_npc_idle(pos, tex_old_chen_south)
+
+func draw_fisher_bo(pos: Vector2):
+	draw_npc_idle(pos, tex_fisher_bo_south)
+
+func draw_old_mira(pos: Vector2):
+	draw_npc_idle(pos, tex_old_mira_south)
+
+func draw_elder_sato(pos: Vector2):
+	draw_npc_idle(pos, tex_elder_sato_south)
+
+# Interior NPCs
+func draw_shopkeeper_bot(pos: Vector2):
+	draw_npc_idle(pos, tex_shopkeeper_bot_south)
+
+func draw_mayor_hiroshi(pos: Vector2):
+	draw_npc_idle(pos, tex_mayor_hiroshi_south)
+
+func draw_baker_bot(pos: Vector2):
+	draw_npc_idle(pos, tex_baker_bot_south)
 
 # ============================================
 # ROAMING ANIMALS SYSTEM
@@ -1317,59 +3296,277 @@ func update_grandmother(delta: float):
 func init_roaming_animals():
 	roaming_animals.clear()
 
-	# Cornfield area animals
-	roaming_animals.append({"area": "cornfield", "type": "chicken", "pos": Vector2(100, 150), "target": Vector2(100, 150), "speed": 6.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "cornfield", "type": "chicken", "pos": Vector2(350, 200), "target": Vector2(350, 200), "speed": 6.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "cornfield", "type": "horse", "pos": Vector2(380, 120), "target": Vector2(380, 120), "speed": 16.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "cornfield", "type": "dog", "pos": Vector2(80, 250), "target": Vector2(80, 250), "speed": 18.0, "timer": 0.0, "dir": 0})
-	
+	# Farm area animals - chickens near the coop
+	roaming_animals.append({"area": "farm", "type": "chicken", "pos": Vector2(140, 130), "home": Vector2(140, 130), "target": Vector2(140, 130), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "farm", "type": "chicken", "pos": Vector2(170, 140), "home": Vector2(170, 140), "target": Vector2(170, 140), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "farm", "type": "chicken", "pos": Vector2(155, 155), "home": Vector2(155, 155), "target": Vector2(155, 155), "speed": 6.0, "timer": 0.0, "dir": 0})
+
+	# Cornfield area animals (home stores initial pos for consistent color)
+	roaming_animals.append({"area": "cornfield", "type": "chicken", "pos": Vector2(100, 150), "home": Vector2(100, 150), "target": Vector2(100, 150), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "cornfield", "type": "chicken", "pos": Vector2(350, 200), "home": Vector2(350, 200), "target": Vector2(350, 200), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "cornfield", "type": "chicken", "pos": Vector2(280, 170), "home": Vector2(280, 170), "target": Vector2(280, 170), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "cornfield", "type": "chicken", "pos": Vector2(200, 220), "home": Vector2(200, 220), "target": Vector2(200, 220), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "cornfield", "type": "horse", "pos": Vector2(380, 120), "home": Vector2(380, 120), "target": Vector2(380, 120), "speed": 16.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "cornfield", "type": "dog", "pos": Vector2(80, 250), "home": Vector2(80, 250), "target": Vector2(80, 250), "speed": 18.0, "timer": 0.0, "dir": 0})
+
 	# Lakeside area animals (positions for top-down view)
-	roaming_animals.append({"area": "lakeside", "type": "frog", "pos": Vector2(260, 280), "target": Vector2(260, 280), "speed": 20.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "lakeside", "type": "frog", "pos": Vector2(200, 220), "target": Vector2(200, 220), "speed": 20.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "lakeside", "type": "cat", "pos": Vector2(60, 150), "target": Vector2(60, 150), "speed": 15.0, "timer": 0.0, "dir": 0})
-	
+	roaming_animals.append({"area": "lakeside", "type": "frog", "pos": Vector2(260, 280), "home": Vector2(260, 280), "target": Vector2(260, 280), "speed": 20.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "lakeside", "type": "frog", "pos": Vector2(200, 220), "home": Vector2(200, 220), "target": Vector2(200, 220), "speed": 20.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "lakeside", "type": "cat", "pos": Vector2(60, 150), "home": Vector2(60, 150), "target": Vector2(60, 150), "speed": 15.0, "timer": 0.0, "dir": 0})
+
 	# Town center area animals
-	roaming_animals.append({"area": "town_center", "type": "dog", "pos": Vector2(100, 200), "target": Vector2(100, 200), "speed": 18.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "town_center", "type": "cat", "pos": Vector2(380, 150), "target": Vector2(380, 150), "speed": 15.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "town_center", "type": "chicken", "pos": Vector2(200, 260), "target": Vector2(200, 260), "speed": 6.0, "timer": 0.0, "dir": 0})
-	roaming_animals.append({"area": "town_center", "type": "donkey", "pos": Vector2(400, 240), "target": Vector2(400, 240), "speed": 12.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "town_center", "type": "dog", "pos": Vector2(100, 200), "home": Vector2(100, 200), "target": Vector2(100, 200), "speed": 18.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "town_center", "type": "cat", "pos": Vector2(380, 150), "home": Vector2(380, 150), "target": Vector2(380, 150), "speed": 15.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "town_center", "type": "chicken", "pos": Vector2(200, 260), "home": Vector2(200, 260), "target": Vector2(200, 260), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "town_center", "type": "chicken", "pos": Vector2(150, 230), "home": Vector2(150, 230), "target": Vector2(150, 230), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "town_center", "type": "chicken", "pos": Vector2(320, 240), "home": Vector2(320, 240), "target": Vector2(320, 240), "speed": 6.0, "timer": 0.0, "dir": 0})
+	roaming_animals.append({"area": "town_center", "type": "donkey", "pos": Vector2(400, 240), "home": Vector2(400, 240), "target": Vector2(400, 240), "speed": 12.0, "timer": 0.0, "dir": 0})
 
 func update_roaming_animals(delta: float):
 	for animal in roaming_animals:
-		# Update timer
+		# Initialize state if not present
+		if not animal.has("state"):
+			animal.state = "idle"
+			animal.state_timer = 0.0
+
 		animal.timer -= delta
-		
-		# Pick new target when timer expires
-		if animal.timer <= 0:
-			animal.timer = randf_range(4.0, 10.0)  # Stay in place longer
-			# Chickens stay close to their current position, others roam more
-			if animal.type == "chicken":
-				# Chickens only move small distances (pecking around)
-				animal.target = Vector2(
-					animal.pos.x + randf_range(-25, 25),
-					animal.pos.y + randf_range(-15, 15)
-				)
-			else:
-				# Other animals roam smaller area for smoother movement
-				animal.target = Vector2(
-					animal.pos.x + randf_range(-60, 60),
-					animal.pos.y + randf_range(-40, 40)
-				)
-				# Clamp to area bounds
-				var bounds = get_area_bounds(animal.area)
-				animal.target.x = clamp(animal.target.x, bounds.position.x + 20, bounds.position.x + bounds.size.x - 20)
-				animal.target.y = clamp(animal.target.y, bounds.position.y + 20, bounds.position.y + bounds.size.y - 20)
-		
-		# Move towards target smoothly
+		animal.state_timer -= delta
+
+		# Update hit flash timer
+		if animal.has("hit_flash") and animal.hit_flash > 0:
+			animal.hit_flash -= delta
+
+		# Animal-specific behavior
+		match animal.type:
+			"chicken":
+				# Chickens: quick pecking movements, frequent short pauses
+				# Special handling for flee state (when punched) - run around in panicked circles!
+				if animal.state == "flee":
+					animal.speed = 140.0  # Run very fast when fleeing!
+
+					# Initialize panic angle if not set
+					if not animal.has("panic_angle"):
+						animal.panic_angle = randf() * TAU  # Random starting direction
+						animal.panic_turn_timer = 0.0
+
+					# Rotate direction to run in circles - chicken panic!
+					var turn_speed = 4.0 + randf() * 2.0  # Variable turn speed
+					animal.panic_angle += turn_speed * delta
+
+					# Occasionally change direction erratically
+					animal.panic_turn_timer -= delta
+					if animal.panic_turn_timer <= 0:
+						animal.panic_turn_timer = randf_range(0.2, 0.5)
+						# Random direction change - sometimes reverse, sometimes slight adjust
+						if randf() > 0.7:
+							animal.panic_angle += PI * randf_range(0.5, 1.5)  # Big direction change
+						else:
+							animal.panic_angle += randf_range(-0.5, 0.5)  # Small wobble
+
+					# Set target based on panic angle (short distance, constantly updating)
+					var panic_dir = Vector2(cos(animal.panic_angle), sin(animal.panic_angle))
+					animal.target = animal.pos + panic_dir * 30
+
+					if animal.state_timer <= 0:
+						# Done panicking, return to normal
+						animal.state = "idle"
+						animal.state_timer = randf_range(1.0, 2.0)
+						animal.erase("panic_angle")
+						animal.erase("panic_turn_timer")
+				elif animal.state_timer <= 0:
+					if animal.state == "idle":
+						animal.state = "peck" if randf() > 0.3 else "walk"
+						animal.state_timer = randf_range(0.5, 1.5)
+						if animal.state == "walk":
+							animal.target = animal.pos + Vector2(randf_range(-20, 20), randf_range(-15, 15))
+					else:
+						animal.state = "idle"
+						animal.state_timer = randf_range(1.0, 3.0)
+				if animal.state != "flee":
+					animal.speed = 8.0 if animal.state == "walk" else 0.0
+
+			"frog":
+				# Frogs: hop then sit, hop then sit
+				if animal.state == "flee":
+					animal.speed = 120.0  # Fast hops when scared!
+					if not animal.has("panic_angle"):
+						animal.panic_angle = randf() * TAU
+						animal.panic_turn_timer = 0.0
+					animal.panic_angle += 5.0 * delta
+					animal.panic_turn_timer -= delta
+					if animal.panic_turn_timer <= 0:
+						animal.panic_turn_timer = randf_range(0.15, 0.3)
+						animal.panic_angle += randf_range(-1.0, 1.0)
+					var panic_dir = Vector2(cos(animal.panic_angle), sin(animal.panic_angle))
+					animal.target = animal.pos + panic_dir * 40
+					if animal.state_timer <= 0:
+						animal.state = "idle"
+						animal.state_timer = randf_range(2.0, 4.0)
+						animal.erase("panic_angle")
+						animal.erase("panic_turn_timer")
+				elif animal.state_timer <= 0:
+					if animal.state == "idle":
+						animal.state = "hop"
+						animal.state_timer = 0.3  # Quick hop
+						animal.target = animal.pos + Vector2(randf_range(-40, 40), randf_range(-30, 30))
+					else:
+						animal.state = "idle"
+						animal.state_timer = randf_range(2.0, 5.0)  # Sit for a while
+				if animal.state != "flee":
+					animal.speed = 80.0 if animal.state == "hop" else 0.0
+
+			"cat":
+				# Cats: slow stalking, occasional quick dash
+				if animal.state == "flee":
+					animal.speed = 100.0  # Cats are fast when scared!
+					if not animal.has("panic_angle"):
+						animal.panic_angle = randf() * TAU
+						animal.panic_turn_timer = 0.0
+					animal.panic_angle += 3.0 * delta
+					animal.panic_turn_timer -= delta
+					if animal.panic_turn_timer <= 0:
+						animal.panic_turn_timer = randf_range(0.3, 0.6)
+						if randf() > 0.5:
+							animal.panic_angle += PI * randf_range(0.3, 0.8)
+					var panic_dir = Vector2(cos(animal.panic_angle), sin(animal.panic_angle))
+					animal.target = animal.pos + panic_dir * 50
+					if animal.state_timer <= 0:
+						animal.state = "idle"
+						animal.state_timer = randf_range(3.0, 5.0)
+						animal.erase("panic_angle")
+						animal.erase("panic_turn_timer")
+				elif animal.state_timer <= 0:
+					if animal.state == "idle":
+						var action = randf()
+						if action > 0.7:
+							animal.state = "dash"
+							animal.state_timer = 0.4
+							animal.target = animal.pos + Vector2(randf_range(-60, 60), randf_range(-40, 40))
+						else:
+							animal.state = "stalk"
+							animal.state_timer = randf_range(2.0, 4.0)
+							animal.target = animal.pos + Vector2(randf_range(-30, 30), randf_range(-20, 20))
+					else:
+						animal.state = "idle"
+						animal.state_timer = randf_range(3.0, 6.0)
+				if animal.state != "flee":
+					animal.speed = 50.0 if animal.state == "dash" else (10.0 if animal.state == "stalk" else 0.0)
+
+			"dog":
+				# Dogs: playful, energetic, run around then rest
+				if animal.state == "flee":
+					animal.speed = 80.0  # Dogs run fast but not as crazy
+					if not animal.has("panic_angle"):
+						animal.panic_angle = randf() * TAU
+						animal.panic_turn_timer = 0.0
+					animal.panic_angle += 2.5 * delta
+					animal.panic_turn_timer -= delta
+					if animal.panic_turn_timer <= 0:
+						animal.panic_turn_timer = randf_range(0.4, 0.8)
+						animal.panic_angle += randf_range(-0.8, 0.8)
+					var panic_dir = Vector2(cos(animal.panic_angle), sin(animal.panic_angle))
+					animal.target = animal.pos + panic_dir * 60
+					if animal.state_timer <= 0:
+						animal.state = "idle"
+						animal.state_timer = randf_range(2.0, 3.0)
+						animal.erase("panic_angle")
+						animal.erase("panic_turn_timer")
+				elif animal.state_timer <= 0:
+					if animal.state == "idle":
+						animal.state = "run"
+						animal.state_timer = randf_range(1.5, 3.0)
+						animal.target = animal.pos + Vector2(randf_range(-80, 80), randf_range(-50, 50))
+					else:
+						animal.state = "idle"
+						animal.state_timer = randf_range(2.0, 4.0)
+				if animal.state != "flee":
+					animal.speed = 35.0 if animal.state == "run" else 0.0
+
+			"horse", "donkey":
+				# Horses/Donkeys: slow steady walking, occasional pause to graze
+				if animal.state == "flee":
+					animal.speed = 70.0  # Big animals run but not crazy fast
+					if not animal.has("panic_angle"):
+						animal.panic_angle = randf() * TAU
+						animal.panic_turn_timer = 0.0
+					animal.panic_angle += 1.5 * delta  # Slower turning for big animals
+					animal.panic_turn_timer -= delta
+					if animal.panic_turn_timer <= 0:
+						animal.panic_turn_timer = randf_range(0.5, 1.0)
+						animal.panic_angle += randf_range(-0.5, 0.5)
+					var panic_dir = Vector2(cos(animal.panic_angle), sin(animal.panic_angle))
+					animal.target = animal.pos + panic_dir * 70
+					if animal.state_timer <= 0:
+						animal.state = "idle"
+						animal.state_timer = randf_range(4.0, 6.0)
+						animal.erase("panic_angle")
+						animal.erase("panic_turn_timer")
+				elif animal.state_timer <= 0:
+					if animal.state == "idle":
+						animal.state = "walk"
+						animal.state_timer = randf_range(3.0, 6.0)
+						animal.target = animal.pos + Vector2(randf_range(-50, 50), randf_range(-30, 30))
+					else:
+						animal.state = "idle"
+						animal.state_timer = randf_range(4.0, 8.0)  # Graze for a while
+				if animal.state != "flee":
+					animal.speed = 12.0 if animal.state == "walk" else 0.0
+			_:
+				# Default behavior
+				if animal.timer <= 0:
+					animal.timer = randf_range(4.0, 10.0)
+					animal.target = animal.pos + Vector2(randf_range(-60, 60), randf_range(-40, 40))
+				animal.speed = 15.0
+
+		# Clamp target to area bounds
+		var bounds = get_area_bounds(animal.area)
+		animal.target.x = clamp(animal.target.x, bounds.position.x + 20, bounds.position.x + bounds.size.x - 20)
+		animal.target.y = clamp(animal.target.y, bounds.position.y + 20, bounds.position.y + bounds.size.y - 20)
+
+		# Move towards target
 		var dir = (animal.target - animal.pos)
-		if dir.length() > 3:
+		if dir.length() > 3 and animal.speed > 0:
 			dir = dir.normalized()
-			animal.pos += dir * animal.speed * delta
-			# Update direction for sprite (0=down, 1=left, 2=right, 3=up)
-			if abs(dir.x) > abs(dir.y):
-				animal.dir = 1 if dir.x < 0 else 2
+			var new_pos = animal.pos + dir * animal.speed * delta
+
+			# Check collision with player (animals avoid the player)
+			var avoid_player = false
+			if current_area == Area.FARM and animal.area == "farm":
+				avoid_player = player_pos.distance_to(new_pos) < 20
+			elif current_area == Area.CORNFIELD and animal.area == "cornfield":
+				avoid_player = player_pos.distance_to(new_pos) < 20
+			elif current_area == Area.LAKESIDE and animal.area == "lakeside":
+				avoid_player = player_pos.distance_to(new_pos) < 20
+			elif current_area == Area.TOWN_CENTER and animal.area == "town_center":
+				avoid_player = player_pos.distance_to(new_pos) < 20
+
+			# Check collision with other animals
+			var avoid_other = false
+			for other in roaming_animals:
+				if other != animal and other.area == animal.area:
+					var other_radius = 10.0
+					match other.type:
+						"chicken": other_radius = 8.0
+						"frog": other_radius = 6.0
+						"cat": other_radius = 10.0
+						"dog": other_radius = 12.0
+						"horse", "donkey": other_radius = 18.0
+						"cow": other_radius = 16.0
+					if other.pos.distance_to(new_pos) < other_radius + 5:
+						avoid_other = true
+						break
+
+			# If collision detected, pick a new target direction
+			if avoid_player or avoid_other:
+				animal.target = animal.pos + Vector2(randf_range(-40, 40), randf_range(-30, 30))
+				animal.state_timer = 0.1  # Quick direction change
 			else:
-				animal.dir = 3 if dir.y < 0 else 0
+				animal.pos = new_pos
+				# Update direction for sprite (0=down, 1=left, 2=right, 3=up)
+				if abs(dir.x) > abs(dir.y):
+					animal.dir = 1 if dir.x < 0 else 2
+				else:
+					animal.dir = 3 if dir.y < 0 else 0
 
 func get_area_bounds(area: String) -> Rect2:
 	match area:
@@ -1387,14 +3584,18 @@ func get_area_bounds(area: String) -> Rect2:
 func draw_roaming_animals_for_area(area_name: String):
 	for animal in roaming_animals:
 		if animal.area == area_name:
-			draw_ninja_animal(animal.pos, animal.type, animal.dir)
+			var home = animal.get("home", animal.pos)
+			var hit_flash = animal.get("hit_flash", 0.0)
+			draw_ninja_animal(animal.pos, animal.type, animal.dir, home, hit_flash)
 
-func draw_ninja_animal(pos: Vector2, animal_type: String, direction: int):
+func draw_ninja_animal(pos: Vector2, animal_type: String, direction: int, home: Vector2 = Vector2.ZERO, hit_flash: float = 0.0):
 	var tex: Texture2D = null
 
 	# Handle chickens specially with color variants
+	# Use home position for consistent color (doesn't change as chicken moves)
 	if animal_type == "chicken":
-		var color_idx = int(abs(pos.x * 7 + pos.y * 13)) % 3
+		var color_pos = home if home != Vector2.ZERO else pos
+		var color_idx = int(abs(color_pos.x * 7 + color_pos.y * 13)) % 3
 		match color_idx:
 			0: tex = tex_ninja_chicken_black
 			1: tex = tex_ninja_chicken_brown
@@ -1403,12 +3604,20 @@ func draw_ninja_animal(pos: Vector2, animal_type: String, direction: int):
 			tex = tex_ninja_chicken
 
 		if tex:
+			# Match farm chicken style: size 16.8 (28 * 0.6) with idle bob
+			var phase = home.x * 0.1 + home.y * 0.07
+			var idle_bob = sin(continuous_timer * 2.5 + phase) * 1.5
+			var idle_sway = sin(continuous_timer * 1.5 + phase) * 1.0
 			draw_ellipse_shape(Vector2(pos.x, pos.y + 2), Vector2(5, 2), Color(0, 0, 0, 0.25))
-			var frame_idx = int(continuous_timer * 4 + pos.x * 0.1) % 2
+			var frame_idx = int(continuous_timer * 4 + phase) % 2
 			var src = Rect2(frame_idx * 16, 0, 16, 16)
-			var sprite_size = 24.0
-			var dest = Rect2(pos.x - sprite_size / 2, pos.y - sprite_size + 4, sprite_size, sprite_size)
-			draw_texture_rect_region(tex, dest, src)
+			var sprite_size = 16.8  # Same as farm chickens (28 * 0.6)
+			var dest = Rect2(pos.x - sprite_size / 2 + idle_sway, pos.y - sprite_size + 8 + idle_bob, sprite_size, sprite_size)
+			# Apply hit flash (white tint when punched)
+			if hit_flash > 0:
+				draw_texture_rect_region(tex, dest, src, Color(2.0, 2.0, 2.0, 1.0))  # Bright white flash
+			else:
+				draw_texture_rect_region(tex, dest, src)
 			return
 
 	match animal_type:
@@ -1504,29 +3713,62 @@ func draw_tumbleweed(pos: Vector2, rotation: float, size_mult: float):
 # ============================================
 
 func _process(delta):
+	continuous_timer += delta  # Never resets - needed for pause menu animations
+
+	# Check for mode change and update music
+	if current_mode != previous_mode:
+		previous_mode = current_mode
+		play_music_for_state()
+
+	# When paused, only update pause menu stuff and redraw
+	if current_mode == GameMode.PAUSE_MENU:
+		# Update pause menu navigation cooldown
+		if pause_menu_nav_cooldown > 0:
+			pause_menu_nav_cooldown -= delta
+		# Update component panel navigation cooldown
+		if component_nav_cooldown > 0:
+			component_nav_cooldown -= delta
+		queue_redraw()
+		return
+
 	anim_timer += delta
-	continuous_timer += delta  # Never resets
+	title_blink_timer += delta  # For title screen "Press Start" blinking
 	if anim_timer > 0.15:
 		anim_timer = 0
 		player_frame = (player_frame + 1) % 6
-	
+
 	# Update player attack animation
 	if player_attacking:
 		player_attack_timer += delta
-		# Advance attack frame (faster than walk)
-		if player_attack_timer > 0.08:
+		# Variable frame timing - fast wind-up, slower on impact
+		var frame_time = 0.04 if player_attack_frame < 2 else 0.10  # Fast start, slow impact - sped up
+		if player_attack_timer > frame_time:
 			player_attack_timer = 0
 			player_attack_frame += 1
+			# Punch lands at frame 2-3 - do the actual hit check and haptic
+			if player_attack_frame == 3 and not player_attack_hit_done:
+				do_punch()
+				haptic_punch()
+				player_attack_hit_done = true
 			# Attack animation complete after all frames
 			var max_frames = tex_player_attack_south.size() if tex_player_attack_south.size() > 0 else 6
 			if player_attack_frame >= max_frames:
 				player_attacking = false
 				player_attack_frame = 0
+				player_attack_hit_done = false
 	
 	# Decay screen shake
 	if screen_shake > 0:
 		screen_shake = max(0, screen_shake - delta * 15.0)
-	
+
+	# Update dialogue menu scroll delay
+	if dialogue_menu_scroll_delay > 0:
+		dialogue_menu_scroll_delay -= delta
+
+	# Update build check cooldown (for BUILD_SCREEN circuit checking)
+	if build_check_cooldown > 0:
+		build_check_cooldown -= delta
+
 	# Update screen transition effect
 	if screen_transition_active:
 		if screen_transition_phase == 1:  # Fading in (from black)
@@ -1564,6 +3806,11 @@ func _process(delta):
 	# Update roaming animals
 	update_roaming_animals(delta)
 
+	# Update roaming NPCs
+	update_roaming_npcs(delta)
+
+	# Corn brush haptic removed - was too frequent
+
 	# Update tumbleweeds on farm
 	if current_area == Area.FARM:
 		update_tumbleweeds(delta)
@@ -1577,30 +3824,86 @@ func _process(delta):
 			if grandmother_target != grandmother_pos:
 				set_quest("Fix Irrigation")
 	
-	# Update kid walk-in animation
+	# Update kid/Milo walk-in animation
 	if kid_visible and kid_walking_in:
+		milo_is_running = true
+		# Update animation frame
+		milo_anim_timer += delta
+		if milo_anim_timer > 0.1:  # 10 FPS animation
+			milo_anim_timer = 0
+			milo_anim_frame = (milo_anim_frame + 1) % 4
+
 		if kid_pos.distance_to(kid_target_pos) > 3:
 			var dir = (kid_target_pos - kid_pos).normalized()
 			kid_pos += dir * 80 * delta  # Kid runs fast
+			# Set facing direction based on movement
+			if abs(dir.x) > abs(dir.y):
+				kid_facing = "right" if dir.x > 0 else "left"
+			else:
+				kid_facing = "down" if dir.y > 0 else "up"
 		else:
 			kid_walking_in = false
-	
+			milo_is_running = false
+
+	# Update Milo leaving (running off screen)
+	if kid_visible and kid_leaving:
+		milo_is_running = true
+		milo_anim_timer += delta
+		if milo_anim_timer > 0.1:
+			milo_anim_timer = 0
+			milo_anim_frame = (milo_anim_frame + 1) % 4
+
+		if kid_pos.distance_to(kid_target_pos) > 3:
+			var dir = (kid_target_pos - kid_pos).normalized()
+			kid_pos += dir * 90 * delta  # Kid runs fast when leaving
+			if abs(dir.x) > abs(dir.y):
+				kid_facing = "right" if dir.x > 0 else "left"
+			else:
+				kid_facing = "down" if dir.y > 0 else "up"
+		else:
+			# Reached exit - hide and return to town
+			kid_leaving = false
+			kid_visible = false
+			milo_is_running = false
+			milo_returned_to_town = true
+			milo_in_town = false
+
 	# Update farmer wen walk-in animation
 	if farmer_wen_visible and farmer_wen_walking_in:
 		if farmer_wen_pos.distance_to(farmer_wen_target_pos) > 3:
 			var dir = (farmer_wen_target_pos - farmer_wen_pos).normalized()
 			farmer_wen_pos += dir * 45 * delta  # Farmer walks slower
+			# Update facing direction based on movement
+			if abs(dir.x) > abs(dir.y):
+				farmer_wen_facing = "east" if dir.x > 0 else "west"
+			else:
+				farmer_wen_facing = "south" if dir.y > 0 else "north"
+			# Animate walk frames
+			farmer_wen_anim_timer += delta
+			if farmer_wen_anim_timer > 0.12:
+				farmer_wen_anim_timer = 0.0
+				farmer_wen_anim_frame = (farmer_wen_anim_frame + 1) % 6
 			# Tractor follows farmer
 			var tractor_dir = (tractor_target_pos - tractor_pos).normalized()
 			tractor_pos += tractor_dir * 45 * delta
 		else:
 			farmer_wen_walking_in = false
 			tractor_visible = true
-	
+
 	# Update farmer wen leaving
 	if farmer_wen_visible and farmer_wen_leaving:
 		var dir = (farmer_wen_target_pos - farmer_wen_pos).normalized()
 		farmer_wen_pos += dir * 60 * delta
+		# Update facing direction based on movement
+		if abs(dir.x) > abs(dir.y):
+			farmer_wen_facing = "east" if dir.x > 0 else "west"
+		else:
+			farmer_wen_facing = "south" if dir.y > 0 else "north"
+		# Animate walk frames
+		farmer_wen_anim_timer += delta
+		if farmer_wen_anim_timer > 0.1:
+			farmer_wen_anim_timer = 0.0
+			farmer_wen_anim_frame = (farmer_wen_anim_frame + 1) % 6
 		var tractor_dir = (tractor_target_pos - tractor_pos).normalized()
 		tractor_pos += tractor_dir * 60 * delta
 		# Off screen? Remove
@@ -1625,6 +3928,7 @@ func _process(delta):
 			process_intro_text(delta)
 		GameMode.EXPLORATION:
 			if in_dialogue:
+				is_walking = false  # Stop walking animation during dialogue
 				process_dialogue(delta)
 			else:
 				process_movement(delta)
@@ -1632,6 +3936,7 @@ func _process(delta):
 		GameMode.SHED_INTERIOR:
 			process_flashlight(delta)
 			if in_dialogue:
+				is_walking = false  # Stop walking animation during dialogue
 				process_dialogue(delta)
 		GameMode.PHOTOGRAPH:
 			if photo_fade < 1.0:
@@ -1643,6 +3948,8 @@ func _process(delta):
 				backpack_anim += delta * 2.0
 		GameMode.COMBAT:
 			process_combat(delta)
+			if in_dialogue:
+				process_dialogue(delta)
 		GameMode.RADIOTOWER_INTERIOR:
 			process_radiotower_interior(delta)
 			if in_dialogue:
@@ -1667,13 +3974,17 @@ func _process(delta):
 			if in_dialogue:
 				process_dialogue(delta)
 		GameMode.ENDING_CUTSCENE:
+			# Timer just for animations, progression is click-based
 			ending_timer += delta
-			if ending_timer > 3.0:
-				ending_timer = 0
-				ending_stage += 1
-				if ending_stage >= 5:
-					current_mode = GameMode.REGION_COMPLETE
-	
+		GameMode.FEEDBACK_SCREEN:
+			# Fade in the feedback screen
+			if feedback_fade_alpha < 1.0:
+				feedback_fade_alpha += delta * 1.5  # Smooth fade over ~0.67 seconds
+				feedback_fade_alpha = min(feedback_fade_alpha, 1.0)
+
+	# Check for autosave
+	check_autosave(delta)
+
 	queue_redraw()
 
 # ============================================
@@ -1709,18 +4020,34 @@ func get_input_4dir() -> Vector2:
 # Get horizontal input only (for combat, platforming, stampede)
 func get_input_horizontal() -> float:
 	var input_x = 0.0
-	
+
 	if Input.is_action_pressed("move_left"):
 		input_x -= 1
 	if Input.is_action_pressed("move_right"):
 		input_x += 1
-	
+
 	# Joystick
 	var joy_x = Input.get_joy_axis(0, JOY_AXIS_LEFT_X)
 	if abs(joy_x) > INPUT_DEADZONE:
 		input_x = sign(joy_x)
-	
+
 	return input_x
+
+# Get vertical input only (for exploration-style interiors)
+func get_input_vertical() -> float:
+	var input_y = 0.0
+
+	if Input.is_action_pressed("move_up"):
+		input_y -= 1
+	if Input.is_action_pressed("move_down"):
+		input_y += 1
+
+	# Joystick
+	var joy_y = Input.get_joy_axis(0, JOY_AXIS_LEFT_Y)
+	if abs(joy_y) > INPUT_DEADZONE:
+		input_y = sign(joy_y)
+
+	return input_y
 
 # Check for jump input (platforming sections)
 func is_jump_just_pressed() -> bool:
@@ -1770,7 +4097,12 @@ func process_movement(delta):
 	if player_detected:
 		is_walking = false
 		return
-	
+
+	# Can't move while dialogue menu is open - input goes to menu navigation
+	if dialogue_menu_active or in_dialogue:
+		is_walking = false
+		return
+
 	# Get input using unified system
 	var input = get_input_4dir()
 	
@@ -1788,10 +4120,7 @@ func process_movement(delta):
 		input = input.normalized()
 		var new_pos = player_pos + input * player_speed * delta
 		var moved = false
-		
-		# Terrain-based haptic feedback
-		haptic_footstep(delta)
-		
+
 		# Check collision with buildings
 		if not check_collision(new_pos):
 			player_pos = new_pos
@@ -1826,7 +4155,10 @@ func process_movement(delta):
 			Area.FARM:
 				player_pos.x = clamp(player_pos.x, 15, 465)
 				player_pos.y = clamp(player_pos.y, 20, 305)
-			Area.CORNFIELD, Area.LAKESIDE, Area.TOWN_CENTER:
+			Area.CORNFIELD:
+				player_pos.x = clamp(player_pos.x, 15, 465)
+				player_pos.y = clamp(player_pos.y, 75, 305)  # Keep player below horizon/mountains
+			Area.LAKESIDE, Area.TOWN_CENTER:
 				player_pos.x = clamp(player_pos.x, 15, 465)
 				player_pos.y = clamp(player_pos.y, 20, 305)
 		
@@ -1889,7 +4221,8 @@ func check_area_transitions():
 
 func enter_area(area: Area):
 	current_area = area
-	
+	play_music_for_state()
+
 	# Trigger screen transition effect
 	screen_transition_active = true
 	screen_transition_alpha = 1.0  # Start fully black
@@ -1904,19 +4237,17 @@ func enter_area(area: Area):
 			pass
 		Area.CORNFIELD:
 			if not cornfield_led_placed and quest_stage == 12:
-				dialogue_queue = [
-					{"speaker": "kaido", "text": "The farmers up here need to see the signal."},
-					{"speaker": "kaido", "text": "We should place LED markers along the path."},
-				]
+				dialogue_queue = dialogue_data.cornfield_led_hint()
 				next_dialogue()
 		Area.LAKESIDE:
-			pass
+			if not lakeside_visited:
+				lakeside_visited = true
+				dialogue_queue = dialogue_data.lakeside_hint()
+				next_dialogue()
 		Area.TOWN_CENTER:
 			if not town_visited:
 				town_visited = true
-				dialogue_queue = [
-					{"speaker": "kaido", "text": "The town center. Most villagers live here."},
-				]
+				dialogue_queue = dialogue_data.town_first_visit()
 				next_dialogue()
 
 func check_collision(pos: Vector2) -> bool:
@@ -1945,10 +4276,15 @@ func check_collision(pos: Vector2) -> bool:
 					return true
 	
 	elif current_area == Area.CORNFIELD:
-		# Collision with cornfield NPCs
-		for npc in cornfield_npcs:
-			if npc.pos.distance_to(pos) < 18:
-				return true
+		# Collision with cornfield NPCs (using dynamic positions for roaming NPCs)
+		if farmer_mae_pos.distance_to(pos) < 18:
+			return true
+		if old_chen_npc_pos.distance_to(pos) < 18:
+			return true
+		if young_taro_pos.distance_to(pos) < 18:
+			return true
+		if farmer_wen_npc_pos.distance_to(pos) < 18:
+			return true
 		# Farmhouse collision
 		if player_rect.intersects(Rect2(350, 40, 60, 35)):
 			return true
@@ -1957,30 +4293,23 @@ func check_collision(pos: Vector2) -> bool:
 		pass
 	
 	elif current_area == Area.LAKESIDE:
-		# Collision with lakeside NPCs
-		for npc in lakeside_npcs:
-			if npc.pos.distance_to(pos) < 18:
+		# Collision with lakeside NPCs (stationary)
+		if fisher_bo_npc_pos.distance_to(pos) < 18:
+			return true
+		if old_mira_npc_pos.distance_to(pos) < 18:
+			return true
+		# Dock area - matches bridge dimensions exactly (x: 250-320, y: 150-185)
+		var on_dock = pos.x > 250 and pos.x < 320 and pos.y > 150 and pos.y < 185
+		if on_dock:
+			pass  # Don't block - player can walk on dock
+		else:
+			# Lake collision - circular shape with left edge clamped to x=270
+			var dist1 = Vector2(340, 160).distance_to(pos)
+			var dist2 = Vector2(380, 140).distance_to(pos)
+			var dist3 = Vector2(300, 190).distance_to(pos)
+			var in_water_circle = dist1 < 105 or dist2 < 75 or dist3 < 65
+			if pos.x > 270 and in_water_circle:
 				return true
-		# Lake collision (top-down view - organic shape on right side)
-		# Main lake body centered around (340, 160)
-		var in_lake = false
-		if Vector2(340, 160).distance_to(pos) < 110:
-			in_lake = true
-		if Vector2(380, 140).distance_to(pos) < 80:
-			in_lake = true
-		if Vector2(300, 190).distance_to(pos) < 70:
-			in_lake = true
-		# Allow dock area (extends from west shore into lake)
-		var on_dock = pos.x > 140 and pos.x < 220 and pos.y > 140 and pos.y < 190
-		if in_lake and not on_dock:
-			return true
-		# Sewer sprite collision (64x64 at draw pos 410, 255)
-		# Only block the upper/back portion, allow player to approach from front
-		var sewer_draw_x = tunnel_pos.x - 20  # 410
-		var sewer_draw_y = tunnel_pos.y - 30  # 255
-		# Block walking into the sewer structure (upper 40px of sprite)
-		if pos.x > sewer_draw_x and pos.x < sewer_draw_x + 64 and pos.y > sewer_draw_y and pos.y < sewer_draw_y + 40:
-			return true
 		# Decorative rocks on shore
 		if Vector2(80, 200).distance_to(pos) < 15:
 			return true
@@ -1991,91 +4320,68 @@ func check_collision(pos: Vector2) -> bool:
 			return true
 		if Vector2(30, 280).distance_to(pos) < 20:
 			return true
-		if Vector2(460, 300).distance_to(pos) < 18:
+		if Vector2(60, 200).distance_to(pos) < 18:
 			return true
 	
 	elif current_area == Area.TOWN_CENTER:
-		# Collision with town NPCs
-		for npc in town_npcs:
-			if npc.pos.distance_to(pos) < 18:
+		# Collision with town NPCs (using dynamic positions for roaming NPCs)
+		if elder_sato_npc_pos.distance_to(pos) < 18:
+			return true
+		if child_mei_pos.distance_to(pos) < 18:
+			return true
+		if guard_tanaka_pos.distance_to(pos) < 18:
+			return true
+
+		# Milo collision when he's in town (so player doesn't walk through him)
+		if milo_in_town and milo_town_pos.distance_to(pos) < 15:
+			return true
+
+		# Shop building collision - sprite at (30, 10), 128x128
+		# Collision covers base of building with door opening
+		if player_rect.intersects(Rect2(10, 40, 128, 68)):
+			# Door opening at center (x: 55-85, allows entry when approaching from below)
+			if not (pos.x > 55 and pos.x < 85 and pos.y > 100):
 				return true
-		
-		# Fountain collision (center of plaza) - smaller radius
-		if Vector2(240, 170).distance_to(pos) < 26:
+
+		# Screen boundary collisions (prevent going off-screen)
+		if pos.x < 10 or pos.x > 470:
 			return true
-		
-		# Well collision (lower in grass)
-		if Vector2(240, 285).distance_to(pos) < 30:
+		if pos.y < 10 or pos.y > 310:
 			return true
-		
-		# Building collisions with door openings
-		# Shop - main body, with door opening at bottom center (x: 55-85)
-		if player_rect.intersects(Rect2(29, 19, 82, 62)):  # Top portion stops before door
-			return true
-		if player_rect.intersects(Rect2(29, 81, 26, 10)):  # Left side of door
-			return true
-		if player_rect.intersects(Rect2(85, 81, 26, 10)):  # Right side of door
-			return true
-		
-		# Town Hall - with center door opening (x: 225-255)
-		if player_rect.intersects(Rect2(169, 14, 142, 80)):  # Top portion
-			return true
-		if player_rect.intersects(Rect2(169, 94, 56, 13)):  # Left of door
-			return true
-		if player_rect.intersects(Rect2(255, 94, 56, 13)):  # Right of door
-			return true
-		
-		# Bakery - with door opening (x: 395-415)
-		if player_rect.intersects(Rect2(369, 24, 72, 58)):  # Top portion
-			return true
-		if player_rect.intersects(Rect2(369, 82, 26, 10)):  # Left of door
-			return true
-		if player_rect.intersects(Rect2(415, 82, 26, 10)):  # Right of door
-			return true
-		
-		# House 1 - drawn at (50, 210) with size ~62x52
-		if player_rect.intersects(Rect2(49, 209, 62, 52)):
-			return true
-		# House 2 - drawn at (370, 220) with size ~72x58
-		if player_rect.intersects(Rect2(369, 219, 72, 58)):
-			return true
-		
-		# Market stall collision
-		if player_rect.intersects(Rect2(380, 140, 60, 50)):
-			return true
-		
-		# Benches
-		if player_rect.intersects(Rect2(140, 200, 30, 14)):
-			return true
-		if player_rect.intersects(Rect2(320, 200, 30, 14)):
-			return true
-		
-		# Lamp posts
-		if Vector2(132, 145).distance_to(pos) < 8:
-			return true
-		if Vector2(352, 145).distance_to(pos) < 8:
-			return true
-		
-		# Barrels
-		if Vector2(125, 125).distance_to(pos) < 12:
-			return true
-		if Vector2(365, 125).distance_to(pos) < 12:
-			return true
-		if Vector2(125, 230).distance_to(pos) < 12:
-			return true
-		if Vector2(365, 230).distance_to(pos) < 12:
-			return true
-		
-		# Cherry blossom trees (trunks) - positioned in corners
-		if Vector2(25, 25).distance_to(pos) < 15:   # Top left corner
-			return true
-		if Vector2(465, 25).distance_to(pos) < 15:  # Top right corner
-			return true
-		if Vector2(25, 275).distance_to(pos) < 15:  # Bottom left corner
-			return true
-		if Vector2(465, 275).distance_to(pos) < 15: # Bottom right corner
-			return true
-	
+
+	# Check collision with roaming animals in current area
+	var area_name = ""
+	match current_area:
+		Area.FARM:
+			area_name = "farm"
+		Area.CORNFIELD:
+			area_name = "cornfield"
+		Area.LAKESIDE:
+			area_name = "lakeside"
+		Area.TOWN_CENTER:
+			area_name = "town_center"
+
+	for animal in roaming_animals:
+		if animal.area == area_name:
+			# Get collision radius based on animal type
+			var collision_radius = 10.0  # Default
+			match animal.type:
+				"chicken":
+					collision_radius = 8.0
+				"frog":
+					collision_radius = 6.0
+				"cat":
+					collision_radius = 10.0
+				"dog":
+					collision_radius = 12.0
+				"horse", "donkey":
+					collision_radius = 18.0
+				"cow":
+					collision_radius = 16.0
+
+			if animal.pos.distance_to(pos) < collision_radius:
+				return true
+
 	return false
 
 func push_player_out_of_stuck():
@@ -2198,8 +4504,18 @@ func update_patrol(delta):
 	# Move patrol robots through town
 	for i in range(patrol_positions.size()):
 		patrol_positions[i].x -= 15 * delta
-		if patrol_positions[i].x < -50:
-			patrol_positions[i].x = 530
+
+	# Check if all robots have passed (all x < -50)
+	var all_passed = true
+	for pos in patrol_positions:
+		if pos.x >= -50:
+			all_passed = false
+			break
+
+	# When all robots have passed, end the patrol and update quest
+	if all_passed and patrol_positions.size() > 0:
+		patrol_active = false
+		set_quest("Talk to Grandmother")
 
 func update_stealth(delta):
 	if player_detected:
@@ -2309,7 +4625,23 @@ func _input(event):
 	if event is InputEventJoypadMotion:
 		if abs(event.axis_value) > 0.5:  # Only print significant movement
 			print("Joypad AXIS: ", event.axis, " value=", event.axis_value)
-	
+
+	# Title screen - press Space, Enter, Start, or X (PS4) to start
+	if current_mode == GameMode.TITLE_SCREEN:
+		var start_pressed = false
+		# Keyboard: Space or Enter only
+		if event is InputEventKey and event.pressed:
+			if event.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER]:
+				start_pressed = true
+		# Controller: Start button or X/A button (Cross on PS4)
+		if event is InputEventJoypadButton and event.pressed:
+			if event.button_index in [JOY_BUTTON_START, JOY_BUTTON_A]:
+				start_pressed = true
+		if start_pressed:
+			current_mode = GameMode.INTRO
+			start_intro_sequence()
+			return
+
 	# Pause menu toggle - Start button or Escape (when not in intro/combat)
 	var pause_toggle = false
 	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_START:
@@ -2323,13 +4655,48 @@ func _input(event):
 			# Resume game
 			current_mode = pause_previous_mode
 			return
+		elif current_mode == GameMode.MAP_VIEW:
+			# Close map, return to previous mode
+			current_mode = map_previous_mode
+			return
 		elif current_mode in [GameMode.EXPLORATION, GameMode.SHED_INTERIOR, GameMode.SHOP_INTERIOR, GameMode.TOWNHALL_INTERIOR, GameMode.BAKERY_INTERIOR]:
 			# Open pause menu
 			pause_previous_mode = current_mode
 			current_mode = GameMode.PAUSE_MENU
 			pause_menu_selection = 0
 			return
-	
+
+	# Map toggle - Select button (Back) or M key
+	var map_toggle = false
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_BACK:
+		map_toggle = true
+	if event is InputEventKey and event.pressed and event.keycode == KEY_M:
+		map_toggle = true
+
+	if map_toggle:
+		if current_mode == GameMode.MAP_VIEW:
+			# Close map
+			current_mode = map_previous_mode
+			return
+		elif current_mode in [GameMode.EXPLORATION, GameMode.SHED_INTERIOR, GameMode.SHOP_INTERIOR, GameMode.TOWNHALL_INTERIOR, GameMode.BAKERY_INTERIOR, GameMode.PAUSE_MENU, GameMode.BACKPACK_POPUP]:
+			# Open map from most modes
+			map_previous_mode = current_mode
+			current_mode = GameMode.MAP_VIEW
+			haptic_light()
+			return
+
+	# Handle map view input (close with any button)
+	if current_mode == GameMode.MAP_VIEW:
+		var close_map = false
+		if event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_A, JOY_BUTTON_B]:
+			close_map = true
+		if event is InputEventKey and event.pressed and event.keycode in [KEY_SPACE, KEY_ESCAPE, KEY_ENTER]:
+			close_map = true
+		if close_map:
+			current_mode = map_previous_mode
+			return
+		return  # Don't process other inputs while map is open
+
 	# Handle pause menu input
 	if current_mode == GameMode.PAUSE_MENU:
 		handle_pause_menu_input(event)
@@ -2361,7 +4728,9 @@ func _input(event):
 			GameMode.INTRO:
 				advance_intro()
 			GameMode.EXPLORATION:
-				if in_dialogue:
+				if dialogue_menu_active:
+					select_dialogue_topic()
+				elif in_dialogue:
 					advance_dialogue()
 				else:
 					check_interactions()
@@ -2386,6 +4755,9 @@ func _input(event):
 			GameMode.RADIOTOWER_INTERIOR:
 				if in_dialogue:
 					advance_dialogue()
+				elif tower_current_floor == 2 and is_near_radio_console():
+					# In radio room near console - interact with it
+					interact_radio_console()
 				elif tower_reached_top:
 					# At top - go to radiotower view for circuit building
 					# tower_reached_top is true so enter_radiotower goes straight to view
@@ -2394,9 +4766,24 @@ func _input(event):
 				if in_dialogue:
 					advance_dialogue()
 			GameMode.COMBAT:
-				pass  # Combat uses different input handling
+				# Handle dialogue after combat ends (e.g., victory dialogue)
+				if in_dialogue and not combat_active:
+					advance_dialogue()
+			GameMode.ENDING_CUTSCENE:
+				# Click to advance ending scenes
+				ending_stage += 1
+				ending_timer = 0
+				if ending_stage >= 7:  # 7 stages: 0-6
+					current_mode = GameMode.REGION_COMPLETE
 			GameMode.REGION_COMPLETE:
-				pass
+				# Any button transitions to feedback screen
+				current_mode = GameMode.FEEDBACK_SCREEN
+				feedback_fade_alpha = 0.0
+			GameMode.FEEDBACK_SCREEN:
+				# Any button returns to title
+				current_mode = GameMode.TITLE_SCREEN
+				feedback_fade_alpha = 0.0
+				reset_game_state()
 			GameMode.SHOP_INTERIOR:
 				if in_dialogue:
 					advance_dialogue()
@@ -2421,6 +4808,11 @@ func _input(event):
 		back_pressed = true
 	
 	if back_pressed:
+		# Cancel dialogue with O/Circle button
+		if in_dialogue:
+			close_dialogue()
+			return
+
 		match current_mode:
 			GameMode.RADIOTOWER_INTERIOR:
 				# Can only exit at the bottom
@@ -2469,7 +4861,7 @@ func _input(event):
 		
 		if switch_left and backpack_tab > 0:
 			backpack_tab -= 1
-		if switch_right and backpack_tab < 1:
+		if switch_right and backpack_tab < 2:
 			backpack_tab += 1
 		
 		# Navigation within current tab
@@ -2482,7 +4874,20 @@ func _input(event):
 				backpack_selected = max(0, backpack_selected - 3)
 			if event.is_action_pressed("move_down"):
 				backpack_selected = min(gadgets.size() - 1, backpack_selected + 3)
-		else:  # Loot tab
+
+			# Equip gadget with X/A button
+			var equip_gadget = event.is_action_pressed("interact") or event.is_action_pressed("ui_accept")
+			if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_A:
+				equip_gadget = true
+			if equip_gadget and gadgets.size() > 0 and backpack_selected < gadgets.size():
+				var new_gadget = gadgets[backpack_selected]
+				# If switching away from flashlight, turn it off
+				if equipped_gadget == "led_lamp" and new_gadget != "led_lamp":
+					flashlight_on = false
+					gadget_effect_active = false
+				equipped_gadget = new_gadget
+
+		elif backpack_tab == 1:  # Loot tab
 			if event.is_action_pressed("move_left"):
 				loot_selected = max(0, loot_selected - 1)
 			if event.is_action_pressed("move_right"):
@@ -2491,7 +4896,7 @@ func _input(event):
 				loot_selected = max(0, loot_selected - 3)
 			if event.is_action_pressed("move_down"):
 				loot_selected = min(loot_items.size() - 1, loot_selected + 3)
-			
+
 			# Select loot item with X button
 			var select_loot = event.is_action_pressed("interact") or event.is_action_pressed("ui_accept")
 			if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_A:
@@ -2500,14 +4905,39 @@ func _input(event):
 				var item = loot_items[loot_selected]
 				if item == "journal":
 					open_journal_view()
+		else:  # Map tab
+			# Pressing A/X opens full map view
+			var open_map = event.is_action_pressed("interact") or event.is_action_pressed("ui_accept")
+			if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_A:
+				open_map = true
+			if open_map:
+				map_previous_mode = GameMode.EXPLORATION  # Return to exploration, not backpack
+				current_mode = GameMode.MAP_VIEW
+				haptic_light()
 	
 	# Journal view scrolling
 	if current_mode == GameMode.JOURNAL_VIEW:
-		if event.is_action_pressed("move_up"):
+		var scroll_up = event.is_action_pressed("move_up") or event.is_action_pressed("ui_up")
+		var scroll_down = event.is_action_pressed("move_down") or event.is_action_pressed("ui_down")
+		# Also handle D-pad and arrow keys explicitly
+		if event is InputEventJoypadButton and event.pressed:
+			if event.button_index == JOY_BUTTON_DPAD_UP:
+				scroll_up = true
+			if event.button_index == JOY_BUTTON_DPAD_DOWN:
+				scroll_down = true
+		if event is InputEventKey and event.pressed:
+			if event.keycode == KEY_UP or event.keycode == KEY_W:
+				scroll_up = true
+			if event.keycode == KEY_DOWN or event.keycode == KEY_S:
+				scroll_down = true
+
+		if scroll_up:
 			journal_scroll = max(0, journal_scroll - 40)
-		if event.is_action_pressed("move_down"):
+			haptic_light()
+		if scroll_down:
 			journal_scroll += 40
-		
+			haptic_light()
+
 		# Close journal
 		var close_journal = event.is_action_pressed("ui_cancel")
 		if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_B:
@@ -2519,12 +4949,59 @@ func _input(event):
 		if close_journal:
 			close_journal_view()
 	
+	# Dialogue menu navigation (when NPC dialogue tree is active)
+	if dialogue_menu_active and current_mode == GameMode.EXPLORATION:
+		# Navigate up/down with keyboard or D-pad (with scroll delay for slower selection)
+		var nav_up = event.is_action_pressed("move_up") or event.is_action_pressed("ui_up")
+		var nav_down = event.is_action_pressed("move_down") or event.is_action_pressed("ui_down")
+		# Also handle D-pad buttons explicitly
+		if event is InputEventJoypadButton and event.pressed:
+			if event.button_index == JOY_BUTTON_DPAD_UP:
+				nav_up = true
+			if event.button_index == JOY_BUTTON_DPAD_DOWN:
+				nav_down = true
+
+		# Only allow navigation if scroll delay has elapsed
+		if nav_up and dialogue_menu_scroll_delay <= 0:
+			dialogue_menu_selected = max(0, dialogue_menu_selected - 1)
+			dialogue_menu_scroll_delay = DIALOGUE_MENU_SCROLL_INTERVAL
+			haptic_light()
+			# Scroll up if needed
+			if dialogue_menu_selected < dialogue_menu_scroll:
+				dialogue_menu_scroll = dialogue_menu_selected
+		if nav_down and dialogue_menu_scroll_delay <= 0:
+			dialogue_menu_selected = min(dialogue_menu_options.size() - 1, dialogue_menu_selected + 1)
+			dialogue_menu_scroll_delay = DIALOGUE_MENU_SCROLL_INTERVAL
+			haptic_light()
+			# Scroll down if more than 4 visible
+			if dialogue_menu_selected >= dialogue_menu_scroll + 4:
+				dialogue_menu_scroll = dialogue_menu_selected - 3
+
+		# Close menu with Circle/B or X key
+		var close_menu = event.is_action_pressed("ui_cancel")
+		if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_B:
+			close_menu = true
+		if event is InputEventKey and event.pressed and event.keycode == KEY_X:
+			close_menu = true
+		if close_menu:
+			close_dialogue_menu()
+		return  # Don't process other input while in dialogue menu
+
 	# Tab or Triangle/Y to open backpack (even if empty)
 	var backpack_pressed = event.is_action_pressed("ui_focus_next")
 	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_Y:
 		backpack_pressed = true
-	if backpack_pressed and current_mode == GameMode.EXPLORATION and not in_dialogue:
+	if backpack_pressed and current_mode == GameMode.EXPLORATION and not in_dialogue and not dialogue_menu_active:
 		show_backpack_view()
+
+	# Triangle/Y to check circuit when in BUILD_SCREEN
+	var check_circuit_pressed = event.is_action_pressed("ui_focus_next")  # Tab on keyboard
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_Y:
+		check_circuit_pressed = true
+	if event is InputEventKey and event.pressed and event.keycode == KEY_T:  # T on keyboard as alternative
+		check_circuit_pressed = true
+	if check_circuit_pressed and current_mode == GameMode.BUILD_SCREEN and not in_dialogue:
+		check_circuit()
 	
 	# SPACE or Square to use equipped gadget OR punch if nothing equipped
 	# X key for punch/gadget
@@ -2537,9 +5014,8 @@ func _input(event):
 		if equipped_gadget != "" and gadget_use_timer <= 0:
 			use_equipped_gadget()
 		elif equipped_gadget == "" and punch_cooldown <= 0:
-			do_punch()
-			haptic_medium()
-			# Also trigger the animation
+			punch_cooldown = 0.5  # Set cooldown immediately to prevent spam
+			# Start the animation - hit check happens when punch lands
 			if not player_attacking:
 				player_attacking = true
 				player_attack_frame = 0
@@ -2576,7 +5052,8 @@ func _input(event):
 	# Combat inputs
 	if current_mode == GameMode.COMBAT:
 		# Allow input if tunnel fight active OR single robot not defeated
-		if tunnel_fight_active or not robot_defeated:
+		# But NOT during dialogue (so advancing dialogue doesn't trigger punches)
+		if (tunnel_fight_active or not robot_defeated) and not in_dialogue:
 			handle_combat_input(event)
 	
 	# Stampede inputs (combat-style)
@@ -2711,6 +5188,25 @@ func handle_combat_input(event):
 		if combat_player_state == "idle" and combat_player_stamina >= 15:
 			start_player_dodge()
 
+	# High Kick - V key / L1 button - powerful kick attack
+	var kick_pressed = (event is InputEventKey and event.pressed and event.keycode == KEY_V)
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_LEFT_SHOULDER:
+		kick_pressed = true
+	if kick_pressed:
+		if combat_player_state == "idle" and combat_player_stamina >= 20:
+			start_player_high_kick()
+
+	# Jump - Space key / D-pad Up or Left Stick Up - jump in combat
+	var jump_pressed = (event is InputEventKey and event.pressed and event.keycode == KEY_SPACE)
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_DPAD_UP:
+		jump_pressed = true
+	# Joystick up (left stick Y axis negative = up)
+	if event is InputEventJoypadMotion and event.axis == JOY_AXIS_LEFT_Y and event.axis_value < -0.5:
+		jump_pressed = true
+	if jump_pressed:
+		if combat_player_state == "idle" and combat_player_grounded:
+			start_combat_jump()
+
 func use_combat_gadget():
 	combat_sys.use_combat_gadget()
 
@@ -2755,6 +5251,14 @@ func add_slash_trail(dir: int, is_heavy: bool = false):
 func start_player_dodge():
 	haptic_light()
 	combat_sys.start_player_dodge()
+
+func start_player_high_kick():
+	haptic_medium()
+	combat_sys.start_player_high_kick()
+
+func start_combat_jump():
+	haptic_light()
+	combat_sys.start_combat_jump()
 
 func check_player_attack_hit():
 	combat_sys.check_player_attack_hit()
@@ -2842,6 +5346,12 @@ func wrap_text(text: String, max_chars: int = 42) -> Array:
 # ============================================
 # INTRO & NAVIGATION
 # ============================================
+
+func start_intro_sequence():
+	# Reset intro state when starting from title screen
+	intro_page = 0
+	intro_char_index = 0
+	intro_text_timer = 0.0
 
 func process_intro_text(delta):
 	if intro_page < intro_text.size():
@@ -2964,11 +5474,23 @@ func check_farm_interactions():
 		check_relic_discovery()
 
 func check_cornfield_interactions():
-	# Check NPC interactions
-	for npc in cornfield_npcs:
-		if player_pos.distance_to(npc.pos) < 35:
-			interact_cornfield_npc(npc)
-			return
+	# Check NPC interactions (using dynamic positions for roaming NPCs)
+	# Farmer Mae roams
+	if player_pos.distance_to(farmer_mae_pos) < 35:
+		interact_cornfield_npc({"name": "Farmer Mae", "dialogue": "We heard the warning. Which way to safety?", "pos": farmer_mae_pos})
+		return
+	# Old Chen is stationary
+	if player_pos.distance_to(old_chen_npc_pos) < 35:
+		interact_cornfield_npc({"name": "Old Chen", "dialogue": "My family has farmed here for generations...", "pos": old_chen_npc_pos})
+		return
+	# Young Taro roams
+	if player_pos.distance_to(young_taro_pos) < 35:
+		interact_cornfield_npc({"name": "Young Taro", "dialogue": "Mom says we have to leave tonight.", "pos": young_taro_pos})
+		return
+	# Farmer Wen near farmhouse
+	if player_pos.distance_to(farmer_wen_npc_pos) < 35:
+		interact_cornfield_npc({"name": "Farmer Wen", "dialogue": "Welcome to my farm. The crops need tending, but spirits are low.", "pos": farmer_wen_npc_pos})
+		return
 	
 	# LED Chain circuit placement (stage 12)
 	if quest_stage == 12 and not cornfield_led_placed:
@@ -2985,11 +5507,13 @@ func check_cornfield_interactions():
 			return
 
 func check_lakeside_interactions():
-	# Check NPC interactions
-	for npc in lakeside_npcs:
-		if player_pos.distance_to(npc.pos) < 35:
-			interact_lakeside_npc(npc)
-			return
+	# Check NPC interactions (stationary NPCs with updated positions)
+	if player_pos.distance_to(fisher_bo_npc_pos) < 35:
+		interact_lakeside_npc({"name": "Fisher Bo", "dialogue": "The fish aren't biting today. Bad omen.", "pos": fisher_bo_npc_pos})
+		return
+	if player_pos.distance_to(old_mira_npc_pos) < 35:
+		interact_lakeside_npc({"name": "Old Mira", "dialogue": "I've seen patrol boats on the lake at night.", "pos": old_mira_npc_pos})
+		return
 
 	# Sewer entrance (during nightfall escape sequence)
 	if is_nightfall and player_pos.distance_to(tunnel_pos) < 40:
@@ -3020,12 +5544,25 @@ func check_town_interactions():
 		enter_bakery()
 		return
 	
-	# Check NPC interactions
-	for npc in town_npcs:
-		if player_pos.distance_to(npc.pos) < 35:
-			interact_town_npc(npc)
-			return
-	
+	# Check NPC interactions (using dynamic positions for roaming NPCs)
+	# Elder Sato is stationary
+	if player_pos.distance_to(elder_sato_npc_pos) < 35:
+		interact_town_npc({"name": "Elder Sato", "dialogue": "The commune has survived before. We will again.", "pos": elder_sato_npc_pos})
+		return
+	# Child Mei roams energetically
+	if player_pos.distance_to(child_mei_pos) < 35:
+		interact_town_npc({"name": "Child Mei", "dialogue": "Is Kaido really a robot? That's so cool!", "pos": child_mei_pos})
+		return
+	# Guard Tanaka patrols
+	if player_pos.distance_to(guard_tanaka_pos) < 35:
+		interact_town_npc({"name": "Guard Tanaka", "dialogue": "I'm supposed to report unusual activity...", "pos": guard_tanaka_pos})
+		return
+
+	# Milo interaction when he's resting in town center
+	if (milo_in_town or milo_returned_to_town) and player_pos.distance_to(milo_town_pos) < 35:
+		interact_milo_town()
+		return
+
 	# Well circuit in town center
 	if not side_circuits_done.well_pump and player_pos.distance_to(well_pos) < 35:
 		interact_well()
@@ -3076,15 +5613,24 @@ func exit_building_interior():
 
 func process_building_interior(delta):
 	if in_dialogue:
+		is_walking = false
 		return  # Don't move during dialogue
-	
+
 	# Get input using unified system
 	var input = get_input_4dir()
-	
+
 	# Normalize and move
 	if input.length() > 0:
 		input = input.normalized()
 		interior_player_pos += input * 120 * delta
+		is_walking = true
+
+		# Update player facing direction based on movement
+		if abs(input.x) > abs(input.y):
+			player_facing = "right" if input.x > 0 else "left"
+		else:
+			player_facing = "down" if input.y > 0 else "up"
+
 		# Wood floor haptics (reduced)
 		footstep_timer += delta
 		if footstep_timer >= 0.24:
@@ -3092,8 +5638,9 @@ func process_building_interior(delta):
 			var foot_var = randf_range(0.85, 1.15)
 			Input.start_joy_vibration(0, 0.1 * foot_var, 0.05 * foot_var, 0.025)
 	else:
+		is_walking = false
 		footstep_timer = 0.0
-	
+
 	# Bounds for interior (smaller room)
 	interior_player_pos.x = clamp(interior_player_pos.x, 40, 440)
 	interior_player_pos.y = clamp(interior_player_pos.y, 160, 290)
@@ -3111,6 +5658,10 @@ func process_building_interior(delta):
 	interior_near_exit = interior_player_pos.distance_to(exit_pos) < 35
 
 func interact_shop_npc():
+	current_dialogue_npc = "Shopkeeper Bot-3000"
+	# Track exploration NPC
+	if not "Shopkeeper Bot-3000" in exploration_npcs_talked:
+		exploration_npcs_talked.append("Shopkeeper Bot-3000")
 	if shop_talked:
 		dialogue_queue = dialogue_data.shop_return()
 	else:
@@ -3119,6 +5670,10 @@ func interact_shop_npc():
 	next_dialogue()
 
 func interact_mayor_npc():
+	current_dialogue_npc = "Mayor Hiroshi"
+	# Track exploration NPC
+	if not "Mayor Hiroshi" in exploration_npcs_talked:
+		exploration_npcs_talked.append("Mayor Hiroshi")
 	if mayor_talked:
 		dialogue_queue = dialogue_data.mayor_return()
 	else:
@@ -3128,6 +5683,9 @@ func interact_mayor_npc():
 
 func interact_baker_npc():
 	current_dialogue_npc = "Baker Bot-7"
+	# Track exploration NPC
+	if not "Baker Bot-7" in exploration_npcs_talked:
+		exploration_npcs_talked.append("Baker Bot-7")
 	if baker_talked:
 		dialogue_queue = dialogue_data.baker_return()
 	else:
@@ -3135,53 +5693,199 @@ func interact_baker_npc():
 		dialogue_queue = dialogue_data.baker_intro()
 	next_dialogue()
 
+func make_npc_face_player(npc_pos: Vector2):
+	# Calculate facing direction from NPC to player and store it
+	dialogue_npc_pos = npc_pos
+	var to_player = player_pos - npc_pos
+	var face_dir: String
+	if abs(to_player.x) > abs(to_player.y):
+		face_dir = "right" if to_player.x > 0 else "left"
+	else:
+		face_dir = "down" if to_player.y > 0 else "up"
+	dialogue_npc_facing = face_dir
+
+	# Also update the specific roaming NPC's facing to look at player
+	match current_dialogue_npc:
+		"Child Mei":
+			child_mei_facing = face_dir
+			child_mei_is_walking = false
+		"Guard Tanaka":
+			guard_tanaka_facing = face_dir
+			guard_tanaka_is_walking = false
+		"Young Taro":
+			young_taro_facing = face_dir
+			young_taro_is_walking = false
+		"Farmer Mae":
+			farmer_mae_facing = face_dir
+			farmer_mae_is_walking = false
+
 func interact_cornfield_npc(npc: Dictionary):
-	current_dialogue_npc = npc.get("name", "Villager")
-	dialogue_queue = [
-		{"speaker": "villager", "text": npc.dialogue},
-	]
-	if quest_stage >= 12 and not cornfield_led_placed:
-		dialogue_queue.append({"speaker": "kaido", "text": "We're setting up signal lights to guide everyone."})
-	next_dialogue()
+	var npc_name = npc.get("name", "Villager")
+	make_npc_face_player(npc.pos)
+	# Track exploration NPC
+	if not npc_name in exploration_npcs_talked:
+		exploration_npcs_talked.append(npc_name)
+	# Use dialogue menu if NPC has a dialogue tree
+	if npc_name in npc_dialogue_trees:
+		open_dialogue_menu(npc_name, npc.pos)
+	else:
+		# Fallback to simple dialogue
+		current_dialogue_npc = npc_name
+		dialogue_queue = [
+			{"speaker": "villager", "text": npc.dialogue},
+		]
+		if quest_stage >= 12 and not cornfield_led_placed:
+			dialogue_queue.append({"speaker": "kaido", "text": "We're setting up signal lights to guide everyone."})
+		next_dialogue()
 
 func interact_lakeside_npc(npc: Dictionary):
-	current_dialogue_npc = npc.get("name", "Villager")
-	dialogue_queue = [
-		{"speaker": "villager", "text": npc.dialogue},
-	]
-	next_dialogue()
+	var npc_name = npc.get("name", "Villager")
+	make_npc_face_player(npc.pos)
+	# Track exploration NPC
+	if not npc_name in exploration_npcs_talked:
+		exploration_npcs_talked.append(npc_name)
+	# Use dialogue menu if NPC has a dialogue tree
+	if npc_name in npc_dialogue_trees:
+		open_dialogue_menu(npc_name, npc.pos)
+	else:
+		# Fallback to simple dialogue
+		current_dialogue_npc = npc_name
+		dialogue_queue = [
+			{"speaker": "villager", "text": npc.dialogue},
+		]
+		next_dialogue()
 
 func interact_town_npc(npc: Dictionary):
-	current_dialogue_npc = npc.name
-	var extra_lines = []
-	match npc.name:
-		"Elder Sato":
-			extra_lines = [
-				{"speaker": "kaido", "text": "Sir, do you know about the Resistance?"},
-				{"speaker": "villager", "text": "That was a long time ago, little one."},
-				{"speaker": "villager", "text": "But some memories never fade."},
+	var npc_name = npc.name
+	make_npc_face_player(npc.pos)
+	# Track exploration NPC
+	if not npc_name in exploration_npcs_talked:
+		exploration_npcs_talked.append(npc_name)
+	# Use dialogue menu if NPC has a dialogue tree
+	if npc_name in npc_dialogue_trees:
+		open_dialogue_menu(npc_name, npc.pos)
+	else:
+		# Fallback to simple dialogue for NPCs without trees
+		current_dialogue_npc = npc_name
+		var extra_lines = []
+		match npc_name:
+			"Baker Yuki":
+				extra_lines = [
+					{"speaker": "system", "text": "[ Received: Fresh Bread ]"},
+				]
+		dialogue_queue = [{"speaker": "villager", "text": npc.dialogue}]
+		dialogue_queue.append_array(extra_lines)
+		next_dialogue()
+
+func interact_milo_town():
+	# Milo dialogue when player finds him in town center
+	current_dialogue_npc = "Milo"
+	make_npc_face_player(milo_town_pos)
+	kid_facing = "down" if player_pos.y > milo_town_pos.y else "up"
+	if player_pos.x < milo_town_pos.x - 10:
+		kid_facing = "left"
+	elif player_pos.x > milo_town_pos.x + 10:
+		kid_facing = "right"
+
+	# Different dialogue based on how many times player has talked to Milo
+	match milo_town_talked:
+		0:
+			# First meeting
+			dialogue_queue = [
+				{"speaker": "kid", "text": "Oh! Hey, are you new here?"},
+				{"speaker": "kid", "text": "I'm Milo! I help Farmer Wen sometimes."},
+				{"speaker": "kaido", "text": "Hello Milo! We're looking for the farm."},
+				{"speaker": "kid", "text": "The farm? It's west of here, just follow the road!"},
+				{"speaker": "kid", "text": "Be careful though, I heard robots patrol there now..."},
+				{"speaker": "kaido", "text": "Robots? That sounds concerning."},
+				{"speaker": "kid", "text": "Yeah, ever since the new Mayor arrived. Things are different."},
+				{"speaker": "kid", "text": "My grandpa says this town used to be way more free."},
+				{"speaker": "kid", "text": "Now everyone's scared to even talk about the old days."},
 			]
-		"Child Mei":
-			extra_lines = [
-				{"speaker": "kaido", "text": "I'm a teaching robot! Want to learn about circuits?"},
-				{"speaker": "villager", "text": "Circuits? Like magic electricity stuff?!"},
+		1:
+			# Second conversation - more about the town
+			dialogue_queue = [
+				{"speaker": "kid", "text": "Hey, you're back! Did you find the farm?"},
+				{"speaker": "kaido", "text": "We're still exploring. What else can you tell us about this place?"},
+				{"speaker": "kid", "text": "Well, the bakery has the best bread in the region!"},
+				{"speaker": "kid", "text": "And the shop sells all kinds of stuff, but it's expensive now."},
+				{"speaker": "kid", "text": "Oh, and stay away from the Town Hall at night."},
+				{"speaker": "kaido", "text": "Why? What happens at night?"},
+				{"speaker": "kid", "text": "I've seen lights in the windows... and heard weird sounds."},
+				{"speaker": "kid", "text": "The Mayor says it's just 'administrative work' but..."},
+				{"speaker": "kid", "text": "I dunno. It gives me the creeps."},
 			]
-		"Guard Tanaka":
-			extra_lines = [
-				{"speaker": "villager", "text": "...But I haven't seen anything unusual."},
-				{"speaker": "villager", "text": "Nothing at all."},
+		2:
+			# Third conversation - about the resistance
+			dialogue_queue = [
+				{"speaker": "kid", "text": "Oh hey! You know, I like you two."},
+				{"speaker": "kid", "text": "Can I tell you a secret?"},
+				{"speaker": "kaido", "text": "Of course, Milo. We can keep a secret."},
+				{"speaker": "kid", "text": "My grandpa... he was part of something called 'The Resistance'."},
+				{"speaker": "kid", "text": "Back when the machines first came to Terra Machina."},
+				{"speaker": "kaido", "text": "The Resistance? I've heard that name before..."},
+				{"speaker": "kid", "text": "They fought to keep people free! Used technology against the bad robots."},
+				{"speaker": "kid", "text": "Grandpa still has some of their old tools hidden somewhere."},
+				{"speaker": "kid", "text": "He says the knowledge is more powerful than any weapon."},
+				{"speaker": "kaido", "text": "Your grandfather sounds very wise."},
+				{"speaker": "kid", "text": "He is! You should meet him sometime."},
 			]
-		"Baker Yuki":
-			extra_lines = [
-				{"speaker": "system", "text": "[ Received: Fresh Bread ]"},
+		3:
+			# Fourth conversation - about Kaido
+			dialogue_queue = [
+				{"speaker": "kid", "text": "Hey! I've been thinking about your robot friend."},
+				{"speaker": "kid", "text": "Kaido, right? You're different from the patrol robots."},
+				{"speaker": "kaido", "text": "I was built to teach, not to control."},
+				{"speaker": "kid", "text": "That's so cool! Can you teach ME something?"},
+				{"speaker": "kaido", "text": "Of course! What would you like to learn?"},
+				{"speaker": "kid", "text": "Hmm... how about how circuits work?"},
+				{"speaker": "kid", "text": "Grandpa showed me once but I forgot most of it."},
+				{"speaker": "kaido", "text": "Circuits are like roads for electricity!"},
+				{"speaker": "kaido", "text": "The electrons flow from one place to another, doing work along the way."},
+				{"speaker": "kid", "text": "Whoa! That makes so much more sense now!"},
+				{"speaker": "kid", "text": "You're a way better teacher than the Town Hall robots."},
 			]
-	
-	dialogue_queue = [{"speaker": "villager", "text": npc.dialogue}]
-	dialogue_queue.append_array(extra_lines)
+		_:
+			# Subsequent conversations - random tips and flavor
+			var tips = [
+				[
+					{"speaker": "kid", "text": "You're still here! That's great!"},
+					{"speaker": "kid", "text": "Hey, did you know there's a secret path by the lake?"},
+					{"speaker": "kid", "text": "Some people say it leads to an old hideout."},
+					{"speaker": "kaido", "text": "Interesting! We should investigate."},
+				],
+				[
+					{"speaker": "kid", "text": "The fountain is my favorite spot in town."},
+					{"speaker": "kid", "text": "I like to sit here and watch the water."},
+					{"speaker": "kid", "text": "It's one of the few things the Mayor hasn't 'improved' yet."},
+					{"speaker": "kaido", "text": "Sometimes the simple things are the best."},
+				],
+				[
+					{"speaker": "kid", "text": "I saw a shooting star last night!"},
+					{"speaker": "kid", "text": "Grandpa says those are old satellites falling."},
+					{"speaker": "kid", "text": "From before the Great Disconnection."},
+					{"speaker": "kaido", "text": "The sky holds many secrets from the old world."},
+				],
+				[
+					{"speaker": "kid", "text": "Be nice to Elder Sato if you see him."},
+					{"speaker": "kid", "text": "He's grumpy but he knows EVERYTHING about this town."},
+					{"speaker": "kid", "text": "He even knew my great-grandparents!"},
+				],
+				[
+					{"speaker": "kid", "text": "I tried to pet one of the patrol robots once."},
+					{"speaker": "kid", "text": "It just... stared at me. For like a whole minute."},
+					{"speaker": "kid", "text": "Then it walked away. So weird."},
+					{"speaker": "kaido", "text": "Patrol units aren't programmed for social interaction."},
+					{"speaker": "kid", "text": "Yeah, they're no fun at all. Unlike you!"},
+				],
+			]
+			dialogue_queue = tips[(milo_town_talked - 4) % tips.size()]
+
+	milo_town_talked += 1
 	next_dialogue()
 
 func start_cornfield_circuit():
-	cornfield_led_placed = true
+	# Don't set cornfield_led_placed here - wait until build is complete
 	dialogue_queue = [
 		{"speaker": "kaido", "text": "This is a good spot for the signal chain."},
 		{"speaker": "kaido", "text": "LEDs in series share current."},
@@ -3213,7 +5917,21 @@ func interact_grandmother():
 		grandmother_facing = "right" if to_player.x > 0 else "left"
 	else:
 		grandmother_facing = "down" if to_player.y > 0 else "up"
-	
+
+	# Check if grandmother is currently a quest objective
+	# Stages 0-14 have specific quest dialogue, after that show optional conversation menu
+	var grandmother_has_quest_dialogue = quest_stage <= 14
+
+	# If grandmother has quest dialogue at this stage, show it instead of the menu
+	if grandmother_has_quest_dialogue:
+		# Continue to quest dialogues below
+		pass
+	else:
+		# Quest is past grandmother's story involvement - show dialogue menu for lore
+		open_dialogue_menu("Grandmother", grandmother_pos)
+		return
+
+	# Quest-critical dialogues - advancing the story
 	match quest_stage:
 		0:
 			dialogue_queue = dialogue_data.grandmother_stage_0()
@@ -3235,14 +5953,27 @@ func interact_grandmother():
 			dialogue_queue = dialogue_data.grandmother_stage_5()
 			# Add hint to go to shed
 			dialogue_queue.append({"speaker": "quest", "text": "Build Silent Alarm in Shed"})
-		6, 7:
+		6:
 			patrol_active = false
 			kid_visible = false
 			dialogue_queue = dialogue_data.grandmother_stage_6_7()
-			if quest_stage == 6:
-				dialogue_queue.append({"speaker": "set_stage", "text": "7"})
-				dialogue_queue.append({"speaker": "quest", "text": "Follow Grandmother"})
-				# Don't move grandmother yet - wait for player
+			dialogue_queue.append({"speaker": "set_stage", "text": "7"})
+			dialogue_queue.append({"speaker": "quest", "text": "Follow Grandmother"})
+		7:
+			patrol_active = false
+			kid_visible = false
+			if grandmother_arrived_at_irrigation:
+				# She's at the irrigation - remind player to inspect it
+				dialogue_queue = [
+					{"speaker": "grandmother", "text": "The irrigation control is right there."},
+					{"speaker": "grandmother", "text": "Go take a look at it. Kaido might know what's wrong."},
+				]
+			else:
+				# Still leading player to irrigation
+				dialogue_queue = [
+					{"speaker": "grandmother", "text": "Follow me to the irrigation system."},
+					{"speaker": "grandmother", "text": "I'll show you what needs fixing."},
+				]
 		8, 9:
 			dialogue_queue = dialogue_data.grandmother_stage_8_9()
 			if quest_stage == 8:
@@ -3257,12 +5988,66 @@ func interact_grandmother():
 				dialogue_queue.append({"speaker": "set_stage", "text": "9"})
 				dialogue_queue.append({"speaker": "quest", "text": "Help Farmer Wen"})
 		10:
-			# First deep talk - introduce backstory
-			dialogue_queue = [
-				{"speaker": "grandmother", "text": "You've learned so much already."},
-				{"speaker": "grandmother", "text": "Farmer Wen's tractor needs a light sensor."},
-				{"speaker": "grandmother", "text": "The shed has what you need."},
-			]
+			# After helping Farmer Wen - encourage exploration before radiotower
+			var npcs_needed = 5
+			var circuits_needed = 1
+			var npcs_count = exploration_npcs_talked.size()
+			var circuits_count = 0
+			if side_circuits_done.chicken_coop: circuits_count += 1
+			if side_circuits_done.well_pump: circuits_count += 1
+
+			if not exploration_complete:
+				if npcs_count == 0:
+					# First time talking - introduce exploration
+					dialogue_queue = [
+						{"speaker": "grandmother", "text": "You've learned so much already."},
+						{"speaker": "grandmother", "text": "Farmer Wen was so grateful for your help."},
+						{"speaker": "grandmother", "text": "But there's more to our village than the farm."},
+						{"speaker": "grandmother", "text": "Go explore! Talk to the villagers. They may need help too."},
+						{"speaker": "grandmother", "text": "The Town Center is to the east - there's a shop, bakery, and town hall."},
+						{"speaker": "grandmother", "text": "To the north is the Cornfield where Farmer Mae works."},
+						{"speaker": "grandmother", "text": "The Lakeside is to the south - the fishing folk know many secrets."},
+						{"speaker": "grandmother", "text": "And be careful on the west road... wild animals stampede through!"},
+						{"speaker": "grandmother", "text": "Talk to at least five villagers and help fix something."},
+						{"speaker": "grandmother", "text": "The chicken coop feeder and well pump both need repairs."},
+						{"speaker": "grandmother", "text": "Come back when you've seen more of our home."},
+						{"speaker": "quest", "text": "Explore the Village"},
+					]
+				elif npcs_count >= npcs_needed and circuits_count >= circuits_needed:
+					# Requirements met!
+					exploration_complete = true
+					dialogue_queue = [
+						{"speaker": "grandmother", "text": "You've met so many of our neighbors!"},
+						{"speaker": "grandmother", "text": "And you fixed the " + ("chicken coop feeder" if side_circuits_done.chicken_coop else "well pump") + " too."},
+						{"speaker": "grandmother", "text": "You're truly becoming part of this community."},
+						{"speaker": "grandmother", "text": "Now... there's something important I need to show you."},
+						{"speaker": "grandmother", "text": "The old radiotower... it's been silent for years."},
+						{"speaker": "grandmother", "text": "Go check on it. Kaido might be able to help."},
+						{"speaker": "quest", "text": "Check Radiotower"},
+					]
+				else:
+					# Remind player of requirements
+					var reminder = "Keep exploring! "
+					if npcs_count < npcs_needed:
+						reminder += "Talk to " + str(npcs_needed - npcs_count) + " more villagers"
+					if npcs_count < npcs_needed and circuits_count < circuits_needed:
+						reminder += " and "
+					if circuits_count < circuits_needed:
+						reminder += "help fix something around the farm"
+					reminder += "."
+					dialogue_queue = [
+						{"speaker": "grandmother", "text": reminder},
+						{"speaker": "grandmother", "text": "You've talked to " + str(npcs_count) + " villagers so far."},
+						{"speaker": "grandmother", "text": "Try the Town Center, Cornfield, or Lakeside."},
+					]
+			else:
+				# Already completed exploration - direct to radiotower
+				dialogue_queue = [
+					{"speaker": "grandmother", "text": "The old radiotower awaits you."},
+					{"speaker": "grandmother", "text": "Your grandfather built it to connect the valley."},
+					{"speaker": "grandmother", "text": "Go see what you can do with Kaido's help."},
+					{"speaker": "quest", "text": "Check Radiotower"},
+				]
 		11:
 			# More backstory
 			dialogue_queue = [
@@ -3272,12 +6057,12 @@ func interact_grandmother():
 				{"speaker": "grandmother", "text": "Now check on the radiotower when you're ready."},
 			]
 		12, 13:
-			# University story
+			# Focus on radiotower after Farmer Wen stage
 			dialogue_queue = [
-				{"speaker": "grandmother", "text": "Your grandfather and I met at university."},
-				{"speaker": "grandmother", "text": "He was brilliant. Always tinkering."},
-				{"speaker": "grandmother", "text": "He believed everyone should understand how things work."},
-				{"speaker": "grandmother", "text": "That's why they came for him first."},
+				{"speaker": "grandmother", "text": "The old radiotower... it's been silent for thirty years."},
+				{"speaker": "grandmother", "text": "Your grandfather built it to connect the valley."},
+				{"speaker": "grandmother", "text": "If you can get it working again..."},
+				{"speaker": "grandmother", "text": "We might finally hear from the outside world."},
 			]
 		14:
 			# CARACTACUS revelation
@@ -3303,7 +6088,7 @@ func interact_shed():
 		1:
 			# Show Kaido dialogue, then schematic
 			dialogue_queue = [
-				{"speaker": "kaido", "text": "The parts are here. I will find a schematic in my memory files for the build."},
+				{"speaker": "kaido", "text": "We have the parts. Here is a schematic from my memory files."},
 				{"speaker": "schematic", "text": "led_lamp"},
 			]
 			next_dialogue()
@@ -3324,15 +6109,27 @@ func show_schematic(circuit_id: String):
 	schematic_shown = true
 
 func close_schematic():
+	# Set up expected circuit for detection
+	expected_circuit = get_expected_circuit_for_schematic(current_schematic)
+	build_attempt_count = 0
+
+	# If detection server connected, enter BUILD_SCREEN for real circuit checking
+	if detection_connected:
+		current_mode = GameMode.BUILD_SCREEN
+		# Show build hints
+		var hints = get_circuit_build_hints(current_schematic)
+		dialogue_queue = hints
+		next_dialogue()
+		return
+
+	# Demo mode (no detection server) - auto-succeed with normal flow
 	current_mode = GameMode.EXPLORATION
-	
-	# After viewing schematic, start build sequence
+
+	# After viewing schematic, start build sequence with tips then success
 	match current_schematic:
 		"led_lamp":
 			start_build_sequence("led_lamp", [
-				{"speaker": "kaido", "text": "Connect the LED's long leg to power."},
-				{"speaker": "kaido", "text": "Short leg goes through the resistor to ground."},
-				{"speaker": "system", "text": "[ BUILD YOUR CIRCUIT NOW ]"},
+				{"speaker": "kaido", "text": "Long leg to power, short leg through resistor to ground."},
 			], [
 				{"speaker": "kaido", "text": "The LED shines bright red!"},
 				{"speaker": "kaido", "text": "You built your first circuit!"},
@@ -3341,14 +6138,12 @@ func close_schematic():
 			])
 		"buzzer_alarm":
 			start_build_sequence("buzzer_alarm", [
-				{"speaker": "kaido", "text": "Connect the buzzer to the button."},
-				{"speaker": "kaido", "text": "Press to complete the circuit."},
-				{"speaker": "system", "text": "[ BUILD YOUR CIRCUIT NOW ]"},
+				{"speaker": "kaido", "text": "Wire the buzzer to the button - press to sound the alarm."},
 			], [
 				{"speaker": "kaido", "text": "The buzzer sounds!"},
 				{"speaker": "system", "text": "[ The patrol marches through... ]"},
 				{"speaker": "set_stage", "text": "6"},
-				{"speaker": "quest", "text": "Talk to Grandmother"},
+				{"speaker": "quest", "text": "Hide from Robot Patrol"},
 			])
 			# Start patrol
 			patrol_active = true
@@ -3359,9 +6154,7 @@ func close_schematic():
 			]
 		"dimmer":
 			start_build_sequence("dimmer", [
-				{"speaker": "kaido", "text": "The potentiometer controls voltage."},
-				{"speaker": "kaido", "text": "Turn the dial to dim the LED!"},
-				{"speaker": "system", "text": "[ BUILD YOUR CIRCUIT NOW ]"},
+				{"speaker": "kaido", "text": "Turn the potentiometer dial to control the LED brightness."},
 			], [
 				{"speaker": "kaido", "text": "The dimmer works!"},
 				{"speaker": "system", "text": "[ Water flows to the crops! ]"},
@@ -3371,47 +6164,93 @@ func close_schematic():
 				{"speaker": "robot", "text": "UNAUTHORIZED COMPONENTS IDENTIFIED."},
 				{"speaker": "robot", "text": "INITIATING COMPLIANCE PROTOCOL."},
 				{"speaker": "kaido", "text": "It's going to attack!"},
-				{"speaker": "kaido", "text": "Watch its movements - press Ã¢â€“Â³ to Counter!"},
+				{"speaker": "kaido", "text": "Watch its movements - press [Y] or [△] to Counter!"},
 				{"speaker": "start_combat", "text": ""},
 			])
 			water_flowing = true
 		"light_sensor":
 			start_build_sequence("light_sensor", [
-				{"speaker": "kaido", "text": "The photoresistor changes with light."},
-				{"speaker": "kaido", "text": "Less light = more resistance."},
-				{"speaker": "kaido", "text": "Cover it to trigger the LED!"},
-				{"speaker": "system", "text": "[ BUILD YOUR CIRCUIT NOW ]"},
+				{"speaker": "kaido", "text": "The photoresistor triggers when covered. Less light = LED on!"},
 			], [
 				{"speaker": "kaido", "text": "Cover sensor - LED lights up!"},
 				{"speaker": "kaido", "text": "The beacon will work at night."},
 				{"speaker": "set_stage", "text": "12"},
-				{"speaker": "quest", "text": "Build Signal Chain"},
+				{"speaker": "grandmother", "text": "Good work! But one beacon won't reach everyone."},
+				{"speaker": "grandmother", "text": "The farmers up in the cornfield need warning signals too."},
+				{"speaker": "kaido", "text": "An LED chain could light up the whole northern path!"},
+				{"speaker": "kaido", "text": "Head to the cornfield and set up the signal lights."},
+				{"speaker": "quest", "text": "Signal the Cornfield"},
 			])
 		"led_chain":
 			start_build_sequence("led_chain", [
-				{"speaker": "kaido", "text": "LEDs in series share current."},
-				{"speaker": "kaido", "text": "If one fails, all go dark."},
-				{"speaker": "system", "text": "[ BUILD YOUR CIRCUIT NOW ]"},
+				{"speaker": "kaido", "text": "Wire LEDs in series - they share current. If one fails, all go dark."},
 			], [
 				{"speaker": "system", "text": "[ Red. Yellow. Green. ]"},
 				{"speaker": "kaido", "text": "The signal chain is ready!"},
+				{"speaker": "kaido", "text": "The farmers can see the warning lights now."},
 				{"speaker": "set_stage", "text": "13"},
-				{"speaker": "quest", "text": "Build OR Gate"},
+				{"speaker": "kaido", "text": "Wait... I'm detecting something from the radiotower."},
+				{"speaker": "kaido", "text": "A faint transmission... someone's trying to reach us!"},
+				{"speaker": "kaido", "text": "We need to get back to the tower and boost the signal."},
+				{"speaker": "quest", "text": "Return to Radiotower"},
 			])
+			# Only show lights after build is complete
+			cornfield_led_placed = true
 		"or_gate":
 			start_build_sequence("or_gate", [
-				{"speaker": "kaido", "text": "Diodes let current flow one way."},
-				{"speaker": "kaido", "text": "Either input triggers output."},
-				{"speaker": "system", "text": "[ BUILD YOUR CIRCUIT NOW ]"},
+				{"speaker": "kaido", "text": "Diodes let current flow one way - either input triggers output."},
 			], [
 				{"speaker": "kaido", "text": "Press either button - LED lights!"},
-				{"speaker": "kaido", "text": "The warning system is complete."},
+				{"speaker": "kaido", "text": "The warning system is complete!"},
 				{"speaker": "set_stage", "text": "14"},
-				{"speaker": "quest", "text": "The Escape"},
+				{"speaker": "system", "text": "[ ALERT: PATROL UNITS DETECTED ]"},
+				{"speaker": "kaido", "text": "The robots... they've found us!"},
+				{"speaker": "grandmother", "text": "It's time. Everyone to the escape tunnel!"},
+				{"speaker": "milo_to_sewers", "text": ""},
+				{"speaker": "kaido", "text": "Follow the signal lights to the lakeside!"},
+				{"speaker": "kaido", "text": "The tunnel entrance is by the rocks on the beach."},
+				{"speaker": "quest", "text": "Escape Through Tunnel"},
 			])
 			is_nightfall = true
 			lit_buildings = ["radiotower", "barn", "mill"]
-	
+		"well_indicator":
+			start_build_sequence("well_indicator", [
+				{"speaker": "kaido", "text": "Wire the LED to show pump status - button press lights it up!"},
+			], [
+				{"speaker": "system", "text": "[ The pump light glows steady! ]"},
+				{"speaker": "kaido", "text": "Now everyone knows when water flows."},
+				{"speaker": "kaido", "text": "Simple solutions save time."},
+			])
+		"tractor_switch":
+			start_build_sequence("tractor_switch", [
+				{"speaker": "kaido", "text": "Both switches must be ON for the circuit to complete - it's an AND gate!"},
+			], [
+				{"speaker": "system", "text": "[ The tractor roars to life! ]"},
+				{"speaker": "farmer_wen", "text": "Ha! She starts right up now!"},
+				{"speaker": "kaido", "text": "Two switches means it can't start by accident."},
+				{"speaker": "farmer_wen", "text": "Amazing! You've got real talent."},
+				{"speaker": "farmer_wen", "text": "Here - I want you to have this."},
+				{"speaker": "farmer_wen", "text": "It's a ticket to a boxing match in New Sumida City."},
+				{"speaker": "add_loot", "text": "boxing_ticket"},
+				{"speaker": "system", "text": "[ Received: Boxing Match Ticket ]"},
+				{"speaker": "farmer_wen", "text": "My nephew fights there. Tell him Wen sent you."},
+				{"speaker": "farmer_wen", "text": "Now I need to get the harvest in."},
+				{"speaker": "farmer_wen", "text": "Thank you, young one. Stay safe."},
+				{"speaker": "farmer_wen_leave", "text": ""},
+				{"speaker": "set_stage", "text": "10"},
+				{"speaker": "quest", "text": "Talk to Grandmother"},
+			])
+		"or_gate_coop":
+			# OR gate for chicken coop feeder - either input triggers output
+			start_build_sequence("or_gate_coop", [
+				{"speaker": "kaido", "text": "Diodes let current flow one way - either input triggers the feeder."},
+			], [
+				{"speaker": "system", "text": "[ The feeder activates! ]"},
+				{"speaker": "kaido", "text": "The automatic feeder works!"},
+				{"speaker": "kaido", "text": "Happy chickens, happy farm."},
+			])
+			side_circuits_done.chicken_coop = true
+
 	current_schematic = ""
 
 # ============================================
@@ -3486,17 +6325,24 @@ func close_photograph():
 # ============================================
 
 func interact_irrigation():
-	if quest_stage == 7:
+	if quest_stage == 7 and grandmother_arrived_at_irrigation:
+		# Player inspects the irrigation - Kaido explains the fix
 		dialogue_queue = [
-			{"speaker": "grandmother", "text": "The water pump needs precise control."},
-			{"speaker": "grandmother", "text": "Too much floods the roots."},
-			{"speaker": "grandmother", "text": "Too little and the crops die."},
-			{"speaker": "kaido", "text": "We need a dimmer circuit!"},
-			{"speaker": "kaido", "text": "It will let us control the flow precisely."},
+			{"speaker": "kaido", "text": "I'm scanning the control panel..."},
+			{"speaker": "kaido", "text": "The voltage regulator is broken."},
+			{"speaker": "kaido", "text": "It's sending full power constantly!"},
+			{"speaker": "kaido", "text": "We need a dimmer circuit to replace it."},
+			{"speaker": "kaido", "text": "A potentiometer will let us control the voltage precisely."},
+			{"speaker": "schematic", "text": "dimmer"},
 		]
 		next_dialogue()
-		# Show schematic after dialogue
-		dialogue_queue.append({"speaker": "schematic", "text": "dimmer"})
+	elif quest_stage == 7:
+		# Player hasn't followed grandmother yet
+		dialogue_queue = [
+			{"speaker": "kaido", "text": "Let's follow grandmother first."},
+			{"speaker": "kaido", "text": "She knows what's wrong with it."},
+		]
+		next_dialogue()
 	else:
 		dialogue_queue = [
 			{"speaker": "kaido", "text": "The irrigation is working now."},
@@ -3509,39 +6355,39 @@ func interact_irrigation():
 # ============================================
 
 func interact_farmer_wen():
+	# Face the player when talking
+	var to_player = player_pos - farmer_wen_pos
+	if abs(to_player.x) > abs(to_player.y):
+		farmer_wen_facing = "east" if to_player.x > 0 else "west"
+	else:
+		farmer_wen_facing = "south" if to_player.y > 0 else "north"
+
 	if quest_stage == 9:
 		npc_talk_count.farmer_wen += 1
 		var talks = npc_talk_count.farmer_wen
-		
+
 		if talks == 1:
+			# First talk - Farmer Wen explains problem, asks for help
 			dialogue_queue = [
+				{"speaker": "farmer_wen", "text": "Oh! A visitor... and what's that?"},
+				{"speaker": "kaido", "text": "I'm Kaido. We're here to help."},
 				{"speaker": "farmer_wen", "text": "My tractor won't start!"},
-				{"speaker": "farmer_wen", "text": "The seat sensor is broken."},
-				{"speaker": "farmer_wen", "text": "It thinks no one is sitting."},
-				{"speaker": "kaido", "text": "The sensor outputs LOW when empty."},
-				{"speaker": "kaido", "text": "We need to adjust the signal strength!"},
-				{"speaker": "kaido", "text": "The dimmer can fine-tune the voltage."},
-			]
-			next_dialogue()
-			start_build_sequence("dimmer", [], [
-				{"speaker": "system", "text": "[ The tractor roars to life! ]"},
-				{"speaker": "farmer_wen", "text": "Amazing! You've got real talent."},
-				{"speaker": "farmer_wen", "text": "Here - take this. It's from before."},
-				{"speaker": "show_component", "text": "tractor_sensor"},
-				{"speaker": "farmer_wen", "text": "I need to get the harvest in."},
-				{"speaker": "farmer_wen", "text": "Thank you, young one. Stay safe."},
-				{"speaker": "farmer_wen_leave", "text": ""},
-				{"speaker": "set_stage", "text": "10"},
-				{"speaker": "quest", "text": "Check Radiotower"},
-			])
-		else:
-			# Backstory before fixing tractor
-			dialogue_queue = [
+				{"speaker": "farmer_wen", "text": "The safety switches are broken."},
+				{"speaker": "farmer_wen", "text": "Both switches need to work or it won't run."},
 				{"speaker": "farmer_wen", "text": "My daughter is in New Sumida City."},
 				{"speaker": "farmer_wen", "text": "She's sick. Medicine is expensive."},
-				{"speaker": "farmer_wen", "text": "That's why I can't leave. The harvest..."},
-				{"speaker": "farmer_wen", "text": "It's all I have to trade for her treatment."},
-				{"speaker": "farmer_wen", "text": "Please, can you help with the tractor?"},
+				{"speaker": "farmer_wen", "text": "The harvest is all I have to trade."},
+				{"speaker": "farmer_wen", "text": "Please, can you help fix it?"},
+			]
+			next_dialogue()
+		else:
+			# Second talk - analyze and show tractor switch schematic
+			dialogue_queue = [
+				{"speaker": "kaido", "text": "Let me analyze the ignition..."},
+				{"speaker": "kaido", "text": "The starter needs two switches in series."},
+				{"speaker": "kaido", "text": "Both must be ON to complete the circuit."},
+				{"speaker": "kaido", "text": "It's a safety feature - an AND gate!"},
+				{"speaker": "schematic", "text": "tractor_switch"},
 			]
 			next_dialogue()
 	else:
@@ -3551,6 +6397,13 @@ func interact_farmer_wen():
 		next_dialogue()
 
 func interact_kid():
+	# Face the player when talking
+	var to_player = player_pos - kid_pos
+	if abs(to_player.x) > abs(to_player.y):
+		kid_facing = "right" if to_player.x > 0 else "left"
+	else:
+		kid_facing = "down" if to_player.y > 0 else "up"
+
 	npc_talk_count.kid += 1
 	dialogue_queue = dialogue_data.kid_talk(npc_talk_count.kid)
 	next_dialogue()
@@ -3561,62 +6414,42 @@ func interact_kid():
 
 func interact_chicken_coop():
 	if side_circuits_done.chicken_coop:
-		dialogue_queue = [
-			{"speaker": "kaido", "text": "The coop door works perfectly now."},
-			{"speaker": "kaido", "text": "Chickens safe, foxes out!"},
-		]
+		dialogue_queue = dialogue_data.chicken_coop_fixed()
 		next_dialogue()
 		return
-	
+
 	if quest_stage < 3:
-		dialogue_queue = [
-			{"speaker": "kaido", "text": "A chicken coop. The door sensor is broken."},
-			{"speaker": "kaido", "text": "Maybe we can fix it later."},
-		]
+		dialogue_queue = dialogue_data.chicken_coop_broken()
 		next_dialogue()
 	else:
-		start_build_sequence("light_sensor", 
-			[
-				{"speaker": "kaido", "text": "The coop door won't close at night."},
-				{"speaker": "kaido", "text": "Foxes have been getting the chickens."},
-				{"speaker": "kaido", "text": "A light sensor could auto-close it at dusk!"},
-			], 
-			[
-				{"speaker": "system", "text": "[ The coop door clicks shut! ]"},
-				{"speaker": "kaido", "text": "The chickens are safe now."},
-				{"speaker": "kaido", "text": "Every circuit helps someone."},
-			]
-		)
+		# Use OR gate circuit - show schematic popup first
+		dialogue_queue = [
+			{"speaker": "kaido", "text": "The chicken feeder needs two triggers."},
+			{"speaker": "kaido", "text": "Morning timer OR motion sensor."},
+			{"speaker": "kaido", "text": "An OR gate lets either input activate the feeder!"},
+			{"speaker": "schematic", "text": "or_gate_coop"},
+		]
+		next_dialogue()
 
 func interact_well():
 	if side_circuits_done.well_pump:
-		dialogue_queue = [
-			{"speaker": "kaido", "text": "The pump indicator glows steady."},
-			{"speaker": "kaido", "text": "Everyone can see when water flows."},
-		]
+		dialogue_queue = dialogue_data.well_fixed()
 		next_dialogue()
 		return
-	
+
 	if quest_stage < 5:
-		dialogue_queue = [
-			{"speaker": "kaido", "text": "An old well. The pump indicator is dark."},
-		]
+		dialogue_queue = dialogue_data.well_broken()
 		next_dialogue()
 	else:
-		# This is a simple LED circuit - same as first one
-		# We'll mark it done and use well_indicator as the gadget_id
-		start_build_sequence("well_indicator",
-			[
-				{"speaker": "kaido", "text": "The villagers can't tell if the pump is running."},
-				{"speaker": "kaido", "text": "They waste time checking manually."},
-				{"speaker": "kaido", "text": "An LED indicator would help!"},
-			],
-			[
-				{"speaker": "system", "text": "[ The pump light glows steady! ]"},
-				{"speaker": "kaido", "text": "Now everyone knows when water flows."},
-				{"speaker": "kaido", "text": "Simple solutions save time."},
-			]
-		)
+		# Show Kaido dialogue, then schematic popup
+		dialogue_queue = [
+			{"speaker": "kaido", "text": "The villagers can't tell if the pump is running."},
+			{"speaker": "kaido", "text": "They waste time checking manually."},
+			{"speaker": "kaido", "text": "An LED indicator would help!"},
+			{"speaker": "kaido", "text": "Here's a simple button indicator circuit."},
+			{"speaker": "schematic", "text": "well_indicator"},
+		]
+		next_dialogue()
 
 # ============================================
 # DISCOVERABLE SECRETS
@@ -3649,15 +6482,15 @@ func discover_journal_page(page_name: String):
 
 func get_journal_page_content() -> Dictionary:
 	return {
-		"shed": {
+		"town_center": {
 			"title": "Journal Entry #1",
 			"text": "The children learn so quickly. Today we built their first circuits. Their eyes when the LED lit up..."
 		},
-		"pond": {
-			"title": "Journal Entry #2", 
+		"cornfield": {
+			"title": "Journal Entry #2",
 			"text": "Energy Nation passed the Knowledge Control Act. Teaching without license is now illegal. We must hide the workshop."
 		},
-		"tree": {
+		"lakeside": {
 			"title": "Journal Entry #3",
 			"text": "I've hidden KAIDO in the shed. If they find me, at least the knowledge survives. Someone will continue."
 		},
@@ -3737,8 +6570,18 @@ func show_component_popup(component_id: String):
 # ============================================
 
 func interact_radiotower():
-	# Stage 10: First time at radiotower - intercept the transmission
+	# Stage 10: First time at radiotower - require exploration first
 	if quest_stage == 10:
+		if not exploration_complete:
+			# Player hasn't explored enough yet - remind them
+			dialogue_queue = [
+				{"speaker": "kaido", "text": "The tower looks quiet for now."},
+				{"speaker": "kaido", "text": "Maybe we should explore the village first?"},
+				{"speaker": "kaido", "text": "Grandmother wanted us to meet the neighbors."},
+			]
+			next_dialogue()
+			return
+		# Exploration complete - trigger the main story
 		dialogue_queue = [
 			{"speaker": "system", "text": "[ The radio crackles to life... ]"},
 			{"speaker": "system", "text": "[ ENCRYPTED TRANSMISSION ]"},
@@ -3750,7 +6593,7 @@ func interact_radiotower():
 			{"speaker": "kaido", "text": "...Outlaw?"},
 			{"speaker": "grandmother", "text": "They're coming for you, Kaido."},
 			{"speaker": "grandmother", "text": "And for anyone who helped hide you."},
-			{"speaker": "kaido", "text": "I'm sorry... I never meant toÃ¢â‚¬â€"},
+			{"speaker": "kaido", "text": "I'm sorry... I never meant to..."},
 			{"speaker": "grandmother", "text": "Don't apologize. We made our choice."},
 			{"speaker": "grandmother", "text": "Now we survive. Together."},
 			{"speaker": "kaido", "text": "We need to evacuate!"},
@@ -3761,8 +6604,20 @@ func interact_radiotower():
 			{"speaker": "set_stage", "text": "11"},
 		]
 		next_dialogue()
+	elif quest_stage == 13:
+		# Stage 13: Build OR gate at the BASE of the tower (no climbing needed)
+		dialogue_queue = [
+			{"speaker": "kaido", "text": "I'm picking up that transmission again..."},
+			{"speaker": "kaido", "text": "It's coming through clearer now!"},
+			{"speaker": "grandmother", "text": "We need a warning system at the base."},
+			{"speaker": "grandmother", "text": "Two lookout points - if either sees danger..."},
+			{"speaker": "kaido", "text": "An OR gate! Either input triggers the alarm!"},
+			{"speaker": "kaido", "text": "I can wire it right here at the tower base."},
+		]
+		dialogue_queue.append({"speaker": "schematic", "text": "or_gate"})
+		next_dialogue()
 	elif quest_stage >= 11:
-		# Need to climb tower first, then build circuits
+		# Stage 11-12: Need to climb tower for light_sensor, or go to cornfield
 		enter_radiotower()
 
 func enter_radiotower():
@@ -3787,30 +6642,23 @@ func start_radiotower_circuit():
 		dialogue_queue.append({"speaker": "schematic", "text": "light_sensor"})
 		next_dialogue()
 	elif quest_stage == 12:
-		# LED chain is built in cornfield now
+		# LED chain is built in cornfield - remind player to go there
 		if not cornfield_led_placed:
 			dialogue_queue = [
-				{"speaker": "grandmother", "text": "One beacon won't be enough."},
-				{"speaker": "kaido", "text": "The farmers up north need signals too."},
-				{"speaker": "kaido", "text": "I should head to the cornfield."},
+				{"speaker": "kaido", "text": "The beacon up here is working."},
+				{"speaker": "kaido", "text": "Now I need to get to the cornfield."},
+				{"speaker": "kaido", "text": "Press [O] to climb down."},
 			]
 			next_dialogue()
 		else:
-			# Already built in cornfield
+			# Already built in cornfield - go back down to build OR gate at base
 			dialogue_queue = [
 				{"speaker": "kaido", "text": "LED chain is set up in the cornfield."},
-				{"speaker": "kaido", "text": "Now we need warning signals."},
+				{"speaker": "kaido", "text": "Now back down to set up the warning system."},
+				{"speaker": "kaido", "text": "Press [O] to climb down."},
 			]
 			next_dialogue()
-	elif quest_stage == 13:
-		dialogue_queue = [
-			{"speaker": "grandmother", "text": "We need warning signals too."},
-			{"speaker": "grandmother", "text": "Two lookout points - if either sees danger..."},
-			{"speaker": "kaido", "text": "An OR gate! Either input triggers the alarm!"},
-		]
-		dialogue_queue.append({"speaker": "schematic", "text": "or_gate"})
-		next_dialogue()
-	elif quest_stage >= 14:
+	elif quest_stage >= 13:
 		dialogue_queue = [
 			{"speaker": "kaido", "text": "All the beacons are ready."},
 			{"speaker": "kaido", "text": "Time to lead everyone to safety."},
@@ -3830,14 +6678,41 @@ func enter_radiotower_interior():
 	tower_player_pos = Vector2(240, 280)
 	tower_player_vel = Vector2.ZERO
 	tower_player_grounded = true
-	
+	tower_current_floor = 0  # Start at ground floor
+	tower_platforms = tower_floor_platforms[0]  # Load floor 0 platforms
+	# Initialize Kaido to follow player
+	tower_kaido_pos = Vector2(200, 280)
+	tower_kaido_trail.clear()
+
 	# Only show climb dialogue the first time
 	if not tower_reached_top:
 		dialogue_queue = [
-			{"speaker": "kaido", "text": "The radio equipment is at the top."},
-			{"speaker": "kaido", "text": "Use <--> to move, [X]/Z to jump!"},
+			{"speaker": "kaido", "text": "The radio room is three floors up."},
+			{"speaker": "kaido", "text": "This is going to be a climb!"},
+			{"speaker": "kaido", "text": "Use <--> to move, [X] to jump!"},
 		]
 		next_dialogue()
+
+func change_tower_floor(new_floor: int, enter_from_top: bool = false):
+	tower_current_floor = new_floor
+	tower_platforms = tower_floor_platforms[new_floor]
+
+	# Floor 2 (Radio Room) uses exploration-style position
+	if new_floor == 2:
+		if enter_from_top:
+			radio_room_player_pos = Vector2(240, 235)
+		else:
+			radio_room_player_pos = Vector2(240, 290)
+		radio_room_player_facing = "up"
+	else:
+		if enter_from_top:
+			# Coming down from above - start at top of screen
+			tower_player_pos = Vector2(240, 60)
+		else:
+			# Going up from below - start at bottom
+			tower_player_pos = Vector2(240, 280)
+		tower_player_vel = Vector2.ZERO
+		tower_player_grounded = false
 
 func exit_radiotower():
 	current_mode = GameMode.EXPLORATION
@@ -3863,59 +6738,59 @@ func exit_radiotower_interior():
 func process_radiotower_interior(delta):
 	if in_dialogue:
 		return
-	
+
+	# Floor 2 (Radio Room) uses exploration-style movement
+	if tower_current_floor == 2:
+		process_radio_room(delta)
+		return
+
+	# Floors 0-1 use platformer physics
 	# Constants
 	var MOVE_SPEED = 150.0
 	var GRAVITY = 800.0
 	var JUMP_FORCE = 320.0
-	
+
 	# Get horizontal input using unified system
 	var input_x = get_input_horizontal()
-	
+
 	# Only update facing when there's actual input
 	if input_x < 0:
 		tower_player_facing_right = false
 	elif input_x > 0:
 		tower_player_facing_right = true
-	
+
 	# Check for jump input using unified system
 	var jump_pressed = is_jump_just_pressed() and tower_player_grounded
-	
+
 	# Horizontal movement
 	tower_player_vel.x = input_x * MOVE_SPEED
-	
-	# Metal platform footstep haptics (reduced)
-	if input_x != 0 and tower_player_grounded:
-		footstep_timer += delta
-		if footstep_timer >= 0.2:
-			footstep_timer = 0.0
-			var foot_var = randf_range(0.9, 1.1)
-			Input.start_joy_vibration(0, 0.14 * foot_var, 0.1 * foot_var, 0.02)
-	elif input_x == 0:
+
+	# Footstep timer (haptics removed - was causing random vibrations)
+	if input_x == 0:
 		footstep_timer = 0.0
-	
+
 	# Gravity
 	tower_player_vel.y += GRAVITY * delta
 	tower_player_vel.y = min(tower_player_vel.y, 600)
-	
+
 	# Jump
 	if jump_pressed:
 		tower_player_vel.y = -JUMP_FORCE
 		tower_player_grounded = false
 		# Jump haptic (reduced)
 		Input.start_joy_vibration(0, 0.18, 0.12, 0.04)
-	
+
 	# Apply movement
 	tower_player_pos.x += tower_player_vel.x * delta
 	tower_player_pos.y += tower_player_vel.y * delta
-	
+
 	# Platform collision
 	tower_player_grounded = false
 	for plat in tower_platforms:
 		var left = plat.x
 		var right = plat.x + plat.w
 		var top = plat.y
-		
+
 		if tower_player_pos.x >= left - 10 and tower_player_pos.x <= right + 10:
 			if tower_player_vel.y > 0 and tower_player_pos.y >= top - 5 and tower_player_pos.y <= top + 20:
 				tower_player_pos.y = top
@@ -3925,23 +6800,99 @@ func process_radiotower_interior(delta):
 				tower_player_vel.y = 0
 				tower_player_grounded = true
 				break
-	
+
 	# Screen bounds
 	tower_player_pos.x = clamp(tower_player_pos.x, 20, 460)
 	tower_player_pos.y = clamp(tower_player_pos.y, 30, 295)
-	
-	# Safety net
+
+	# Safety net - ground level
 	if tower_player_pos.y >= 290:
 		tower_player_pos.y = 290
 		tower_player_vel.y = 0
 		tower_player_grounded = true
-	
-	# Reached top platform - auto transition to circuit building
-	if tower_player_pos.y <= 50 and not tower_reached_top:
+
+	# Update Kaido trail for following
+	tower_kaido_trail.append(tower_player_pos)
+	if tower_kaido_trail.size() > tower_kaido_trail_delay:
+		tower_kaido_pos = tower_kaido_trail[0]
+		tower_kaido_trail.remove_at(0)
+
+	# Floor transitions
+	# Reached top of current floor - go to next floor
+	if tower_player_pos.y <= 30:
+		if tower_current_floor < 2:
+			# Go up to next floor
+			change_tower_floor(tower_current_floor + 1, false)
+			# Show floor message
+			if tower_current_floor == 1:
+				dialogue_queue = [{"speaker": "kaido", "text": "Floor 2 - Keep climbing!"}]
+				next_dialogue()
+			elif tower_current_floor == 2:
+				dialogue_queue = [{"speaker": "kaido", "text": "The radio room! Almost there!"}]
+				next_dialogue()
+
+	# At bottom of floor - go down or exit
+	if tower_player_pos.y >= 295 and tower_current_floor > 0:
+		# Go down to previous floor
+		change_tower_floor(tower_current_floor - 1, true)
+
+# Radio Room (Floor 2) - Exploration-style interior
+var radio_room_player_pos: Vector2 = Vector2(240, 260)
+var radio_room_player_facing: String = "up"
+const RADIO_CONSOLE_POS = Vector2(240, 210)  # Center of radio equipment
+
+func process_radio_room(delta):
+	# Exploration-style movement (no jumping/gravity)
+	var MOVE_SPEED = 120.0
+
+	var input_x = get_input_horizontal()
+	var input_y = get_input_vertical()
+
+	# Update facing direction
+	if abs(input_x) > abs(input_y):
+		if input_x < 0:
+			radio_room_player_facing = "left"
+		elif input_x > 0:
+			radio_room_player_facing = "right"
+	else:
+		if input_y < 0:
+			radio_room_player_facing = "up"
+		elif input_y > 0:
+			radio_room_player_facing = "down"
+
+	# Movement
+	radio_room_player_pos.x += input_x * MOVE_SPEED * delta
+	radio_room_player_pos.y += input_y * MOVE_SPEED * delta
+
+	# Bounds - walkable area in radio room (expanded floor space)
+	radio_room_player_pos.x = clamp(radio_room_player_pos.x, 60, 420)
+	radio_room_player_pos.y = clamp(radio_room_player_pos.y, 220, 300)
+
+	# Don't walk into the console (at back of room)
+	if radio_room_player_pos.y < 230 and radio_room_player_pos.x > 130 and radio_room_player_pos.x < 350:
+		radio_room_player_pos.y = 230
+
+	# Update Kaido trail for following in radio room
+	tower_kaido_trail.append(radio_room_player_pos)
+	if tower_kaido_trail.size() > tower_kaido_trail_delay:
+		tower_kaido_pos = tower_kaido_trail[0]
+		tower_kaido_trail.remove_at(0)
+
+	# Going down exits to floor 1
+	if radio_room_player_pos.y >= 298:
+		change_tower_floor(1, true)
+
+func interact_radio_console():
+	if not tower_reached_top:
 		tower_reached_top = true
-		# Auto-transition to radiotower view for circuit building
 		current_mode = GameMode.RADIOTOWER_VIEW
 		start_radiotower_circuit()
+	else:
+		# Already completed - just show view
+		current_mode = GameMode.RADIOTOWER_VIEW
+
+func is_near_radio_console() -> bool:
+	return radio_room_player_pos.distance_to(RADIO_CONSOLE_POS) < 50
 
 func draw_radiotower_interior():
 	interior_sc.draw_radiotower_interior()
@@ -3970,6 +6921,23 @@ func start_ending_cutscene():
 	current_mode = GameMode.ENDING_CUTSCENE
 	ending_stage = 0
 	ending_timer = 0.0
+	# Clear combat flags now that we're in the cutscene
+	tunnel_fight_active = false
+	combat_active = false
+
+func reset_game_state():
+	# Reset key state for returning to title after demo
+	ending_stage = 0
+	ending_timer = 0.0
+	intro_page = 0
+	intro_char_index = 0
+	intro_text_timer = 0.0
+	in_dialogue = false
+	dialogue_queue.clear()
+	current_dialogue = {}
+	# Reset exploration tracking
+	exploration_npcs_talked.clear()
+	exploration_complete = false
 
 # ============================================
 # BUILD SEQUENCE SYSTEM
@@ -3992,13 +6960,13 @@ const REAL_GADGETS = ["led_lamp", "dimmer"]
 
 func add_gadget(gadget_id: String):
 	circuits_built += 1
-	
-	# Check for side circuit completions
-	if gadget_id == "light_sensor" and not side_circuits_done.chicken_coop:
+
+	# Check for side circuit completions (only mark done for the specific side circuit gadgets)
+	if gadget_id == "or_gate_coop":
 		side_circuits_done.chicken_coop = true
 	if gadget_id == "well_indicator":
 		side_circuits_done.well_pump = true
-	
+
 	# Only add to backpack if it's a real gadget
 	if gadget_id in REAL_GADGETS:
 		if not gadget_id in gadgets:
@@ -4130,7 +7098,7 @@ func do_punch():
 	punch_cooldown = 0.4
 	punch_effect_timer = 0.2
 	punch_direction = player_facing
-	
+
 	# Check if we hit anything interactable
 	var punch_offset = Vector2.ZERO
 	match player_facing:
@@ -4138,11 +7106,50 @@ func do_punch():
 		"down": punch_offset = Vector2(0, 30)
 		"left": punch_offset = Vector2(-30, 0)
 		"right": punch_offset = Vector2(30, 0)
-	
+
 	var punch_pos = player_pos + punch_offset
-	
-	# Can punch trees for fun (no effect yet, just feedback)
-	# Could add: shake trees, scare chickens, etc.
+
+	# Check if punch hits any chickens in current area
+	var area_name = ""
+	match current_area:
+		Area.FARM: area_name = "farm"
+		Area.CORNFIELD: area_name = "cornfield"
+		Area.LAKESIDE: area_name = "lakeside"
+		Area.TOWN_CENTER: area_name = "town_center"
+
+	for animal in roaming_animals:
+		if animal.area == area_name:
+			var dist = animal.pos.distance_to(punch_pos)
+			# Hit radius varies by animal size
+			var hit_radius = 25.0
+			match animal.type:
+				"horse", "donkey": hit_radius = 35.0
+				"dog", "cat": hit_radius = 28.0
+				"frog": hit_radius = 20.0
+
+			if dist < hit_radius:
+				# Animal got punched! Make it panic and run away!
+				animal.state = "flee"
+				# Panic duration varies by animal
+				match animal.type:
+					"chicken": animal.state_timer = 3.0
+					"frog": animal.state_timer = 2.0
+					"cat": animal.state_timer = 4.0
+					"dog": animal.state_timer = 2.5
+					"horse", "donkey": animal.state_timer = 3.5
+					_: animal.state_timer = 3.0
+				animal.hit_flash = 0.2  # Brief flash
+				# Initialize panic angle - start running away from player
+				var flee_dir = (animal.pos - player_pos).normalized()
+				animal.panic_angle = atan2(flee_dir.y, flee_dir.x)
+				animal.panic_turn_timer = 0.3  # Start turning soon
+				animal.target = animal.pos + flee_dir * 50
+				# Strong haptic feedback when punch connects
+				haptic_punch_hit()
+				# Add screen shake for impact feel
+				screen_shake = 4.0
+				# Add hit effect text
+				add_hit_effect(animal.pos + Vector2(0, -20), "BONK!", Color(1.0, 0.8, 0.3))
 
 func cycle_gadget():
 	if gadgets.size() == 0:
@@ -4170,6 +7177,59 @@ func cycle_gadget():
 # ============================================
 # DIALOGUE SYSTEM
 # ============================================
+
+func close_dialogue():
+	# Cancel/close current dialogue immediately
+	dialogue_queue.clear()
+	in_dialogue = false
+	current_dialogue = {}
+	current_dialogue_npc = ""
+
+# ============================================
+# DIALOGUE MENU (NPC Topic Selection)
+# ============================================
+
+func open_dialogue_menu(npc_name: String, npc_pos: Vector2):
+	# Check if this NPC has a dialogue tree
+	if npc_name in npc_dialogue_trees:
+		dialogue_menu_active = true
+		dialogue_menu_npc = npc_name
+		dialogue_menu_options = npc_dialogue_trees[npc_name]
+		dialogue_menu_selected = 0
+		dialogue_menu_scroll = 0
+		current_dialogue_npc = npc_name
+		dialogue_npc_pos = npc_pos
+		# Make NPC face player
+		make_npc_face_player(npc_pos)
+	else:
+		# Fallback: No dialogue tree, use default single dialogue
+		dialogue_menu_active = false
+
+func close_dialogue_menu():
+	dialogue_menu_active = false
+	dialogue_menu_options = []
+	dialogue_menu_selected = 0
+	dialogue_menu_scroll = 0
+	dialogue_menu_npc = ""
+	current_dialogue_npc = ""
+
+func select_dialogue_topic():
+	# Player selected a topic from the dialogue menu
+	if dialogue_menu_options.size() == 0:
+		close_dialogue_menu()
+		return
+
+	var selected_topic = dialogue_menu_options[dialogue_menu_selected]
+	var dialogue_lines = selected_topic.get("dialogue", [])
+
+	# Close menu and start the dialogue
+	dialogue_menu_active = false
+
+	if dialogue_lines.size() > 0:
+		dialogue_queue = dialogue_lines.duplicate(true)  # Deep copy
+		next_dialogue()
+	else:
+		close_dialogue_menu()
 
 func next_dialogue():
 	if dialogue_queue.size() > 0:
@@ -4213,13 +7273,44 @@ func next_dialogue():
 			in_dialogue = false
 			next_dialogue()
 			return
-		
+
+		if current_dialogue.get("speaker") == "add_loot":
+			var loot_id = current_dialogue.get("text", "")
+			if loot_id not in loot_items:
+				loot_items.append(loot_id)
+				# Switch to LOOT tab and select the new item
+				backpack_tab = 1
+				loot_selected = loot_items.size() - 1
+			in_dialogue = false
+			next_dialogue()
+			return
+
 		if current_dialogue.get("speaker") == "farmer_wen_leave":
 			farmer_wen_drive_away()
 			in_dialogue = false
 			next_dialogue()
 			return
-		
+
+		if current_dialogue.get("speaker") == "milo_leave":
+			# Make Milo run off screen to the right
+			kid_leaving = true
+			kid_target_pos = Vector2(520, kid_pos.y)  # Run off screen right
+			in_dialogue = false
+			next_dialogue()
+			return
+
+		if current_dialogue.get("speaker") == "milo_to_sewers":
+			# Milo runs to the sewers during escape sequence
+			milo_running_to_sewers = true
+			milo_returned_to_town = false
+			kid_visible = true
+			kid_pos = milo_town_pos  # Start from town position
+			kid_leaving = true
+			kid_target_pos = Vector2(-50, 200)  # Run off screen left (toward lakeside/sewers)
+			in_dialogue = false
+			next_dialogue()
+			return
+
 		if current_dialogue.get("speaker") == "start_tunnel_fight":
 			start_tunnel_fight()
 			in_dialogue = false
@@ -4240,6 +7331,7 @@ func next_dialogue():
 	else:
 		current_dialogue = {}
 		current_dialogue_npc = ""
+		dialogue_npc_pos = Vector2.ZERO
 		in_dialogue = false
 
 func advance_dialogue():
@@ -4268,6 +7360,8 @@ func _draw():
 	# World elements get zoomed, UI elements stay normal size
 	
 	match current_mode:
+		GameMode.TITLE_SCREEN:
+			draw_title_screen()
 		GameMode.INTRO:
 			draw_intro_screen()
 		GameMode.EXPLORATION:
@@ -4278,6 +7372,7 @@ func _draw():
 			draw_photograph_reveal()
 		GameMode.BUILD_SCREEN:
 			draw_exploration()
+			draw_build_screen_overlay()
 		GameMode.SCHEMATIC_POPUP:
 			draw_exploration()
 			draw_schematic_popup()
@@ -4319,22 +7414,223 @@ func _draw():
 				GameMode.BAKERY_INTERIOR:
 					draw_bakery_interior()
 			draw_pause_menu()
-	
-	# Nightfall overlay (no zoom - covers full screen)
+		GameMode.MAP_VIEW:
+			draw_map_view()
+		GameMode.FEEDBACK_SCREEN:
+			draw_feedback_screen()
+
+	# Nightfall shadow system (real shadows with light sources)
 	if is_nightfall and current_mode == GameMode.EXPLORATION:
-		draw_rect(Rect2(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT), Color(0.05, 0.05, 0.15, nightfall_alpha))
-		apply_zoom()
-		draw_lit_buildings()
-		reset_zoom()
-	
+		draw_nightfall_shadows()
+		# Redraw UI elements ON TOP of nightfall shadows so they're readable
+		draw_quest_box()
+		draw_backpack_icon()
+		draw_help_meter()
+		draw_area_indicator()
+		if in_dialogue:
+			draw_dialogue_box()
+		# Prompts should also be visible
+		match current_area:
+			Area.FARM: draw_farm_prompts()
+			Area.CORNFIELD: draw_cornfield_prompts()
+			Area.LAKESIDE: draw_lakeside_prompts()
+			Area.TOWN_CENTER: draw_town_prompts()
+
 	# Screen transition overlay (fade effect between areas)
 	if screen_transition_active and screen_transition_alpha > 0:
 		draw_rect(Rect2(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT), Color(0, 0, 0, screen_transition_alpha))
 
+func draw_title_screen():
+	# ============================================
+	# NES LEGEND OF ZELDA STYLE TITLE SCREEN
+	# 480x320 resolution, 16-bit retro aesthetic
+	# ============================================
+
+	# BACKGROUND: Top-down world map with muted colors
+	if tex_world_map:
+		var tex_w = tex_world_map.get_width()
+		var tex_h = tex_world_map.get_height()
+		var scale = max(480.0 / tex_w, 320.0 / tex_h)  # Fill screen
+		var draw_w = tex_w * scale
+		var draw_h = tex_h * scale
+		var draw_x = (480 - draw_w) / 2
+		var draw_y = (320 - draw_h) / 2
+		# Muted color tint for retro NES feel (grays, greens, blues)
+		draw_texture_rect(tex_world_map, Rect2(draw_x, draw_y, draw_w, draw_h), false, Color(0.55, 0.6, 0.5))
+	else:
+		# Fallback: Draw procedural pixel terrain
+		draw_title_pixel_terrain()
+
+	# Slight dark overlay to make title pop
+	draw_rect(Rect2(0, 0, 480, 320), Color(0.0, 0.0, 0.0, 0.2))
+
+	# DECORATIVE FRAME: Pixel border with parchment fill
+	var frame_x = 60
+	var frame_y = 55
+	var frame_w = 360
+	var frame_h = 110
+
+	# Draw circuit/vine pixel border pattern
+	draw_title_frame_border(frame_x, frame_y, frame_w, frame_h)
+
+	# Parchment/tan fill inside frame
+	draw_rect(Rect2(frame_x + 8, frame_y + 8, frame_w - 16, frame_h - 16), Color(0.82, 0.72, 0.55))
+	draw_rect(Rect2(frame_x + 10, frame_y + 10, frame_w - 20, frame_h - 20), Color(0.88, 0.8, 0.62))
+
+	# TITLE: "KAID[O]TRAINER" with Kaido sprite as the "O"
+	var title_y = frame_y + 35
+	var letter_w = 24  # Width per letter
+	var title_total_w = 11 * letter_w + 30  # 11 letters + kaido space
+	var title_start_x = (480 - title_total_w) / 2 + 10
+
+	# Shadow layer (offset down-right) - dark brown for 3D effect
+	var shadow_color = Color(0.2, 0.08, 0.0)
+	var shadow_off = 3
+
+	# Main title color - bold red/orange like Zelda logo
+	var title_color = Color(0.85, 0.25, 0.08)
+	var highlight_color = Color(1.0, 0.5, 0.2)  # Lighter highlight
+
+	# Draw "KAID" - shadow then main
+	var letters_kaid = "KAID"
+	var x_pos = title_start_x
+	for i in range(letters_kaid.length()):
+		draw_pixel_letter_bold(x_pos + shadow_off, title_y + shadow_off, letters_kaid[i], shadow_color, 22)
+		draw_pixel_letter_bold(x_pos, title_y, letters_kaid[i], title_color, 22)
+		draw_pixel_letter_bold(x_pos - 1, title_y - 1, letters_kaid[i], highlight_color, 22)  # Highlight
+		x_pos += letter_w
+
+	# Kaido sprite as the "O" - with teal glow
+	var kaido_x = x_pos
+	var kaido_y = title_y - 18  # Raised to align with letter centers
+	var kaido_size = 24  # Sized to match letter height
+
+	# Glow effect behind Kaido (pulsing)
+	var glow_pulse = (sin(title_blink_timer * 4) + 1) / 2 * 0.4 + 0.3
+	draw_circle(Vector2(kaido_x + kaido_size/2, kaido_y + kaido_size/2), 20, Color(0.2, 0.85, 0.85, glow_pulse))
+	draw_circle(Vector2(kaido_x + kaido_size/2, kaido_y + kaido_size/2), 16, Color(0.3, 0.95, 0.95, glow_pulse * 0.7))
+
+	# Draw Kaido sprite
+	if tex_kaido:
+		draw_texture_rect(tex_kaido, Rect2(kaido_x, kaido_y, kaido_size, kaido_size), false)
+	else:
+		# Fallback: Draw procedural Kaido
+		draw_circle(Vector2(kaido_x + 16, kaido_y + 16), 14, Color(0.25, 0.75, 0.75))  # Body
+		draw_circle(Vector2(kaido_x + 16, kaido_y + 12), 5, Color(1.0, 1.0, 0.9))  # Eye
+		draw_circle(Vector2(kaido_x + 16, kaido_y + 12), 2, Color(0.1, 0.1, 0.1))  # Pupil
+
+	x_pos += kaido_size + 4
+
+	# Draw "TRAINER" - shadow then main
+	var letters_trainer = "TRAINER"
+	for i in range(letters_trainer.length()):
+		draw_pixel_letter_bold(x_pos + shadow_off, title_y + shadow_off, letters_trainer[i], shadow_color, 22)
+		draw_pixel_letter_bold(x_pos, title_y, letters_trainer[i], title_color, 22)
+		draw_pixel_letter_bold(x_pos - 1, title_y - 1, letters_trainer[i], highlight_color, 22)  # Highlight
+		x_pos += letter_w
+
+	# Subtitle inside frame - warm brown text
+	var sub_y = frame_y + 80
+	var subtitle = "Learn Electronics. Save the World."
+	var sub_color = Color(0.4, 0.28, 0.15)
+	var sub_x = (480 - subtitle.length() * 6) / 2
+	draw_string(ThemeDB.fallback_font, Vector2(sub_x + 1, sub_y + 1), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.2, 0.15, 0.1, 0.5))
+	draw_string(ThemeDB.fallback_font, Vector2(sub_x, sub_y), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, sub_color)
+
+	# PUSH START BUTTON - classic NES style blinking at bottom
+	var start_y = 240
+	var blink = (sin(title_blink_timer * 3) + 1) / 2  # Slower blink
+
+	# Only show text when blink > 0.3 for classic on/off effect
+	if blink > 0.3:
+		var start_text = "- PUSH START BUTTON -"
+		var start_x = (480 - start_text.length() * 8) / 2
+		# Shadow
+		draw_string(ThemeDB.fallback_font, Vector2(start_x + 1, start_y + 1), start_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.0, 0.0, 0.0, 0.8))
+		# White pixel text
+		draw_string(ThemeDB.fallback_font, Vector2(start_x, start_y), start_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 1.0, 1.0))
+
+	# Copyright line at very bottom
+	var copy_text = "2026 ONUSKA & BROWN TECHNOLOGIES LTD"
+	var copy_x = (480 - copy_text.length() * 5) / 2
+	draw_string(ThemeDB.fallback_font, Vector2(copy_x, 300), copy_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.45, 0.45, 0.4))
+
+func draw_title_pixel_terrain():
+	# Procedural NES-style terrain fallback
+	# Rocky grays, forest greens, water blues - muted palette
+
+	# Base terrain - muted green-gray
+	draw_rect(Rect2(0, 0, 480, 320), Color(0.32, 0.38, 0.28))
+
+	# Rocky mountain patches (gray)
+	draw_rect(Rect2(20, 20, 80, 60), Color(0.45, 0.43, 0.4))
+	draw_rect(Rect2(380, 30, 70, 50), Color(0.48, 0.45, 0.42))
+	draw_rect(Rect2(100, 250, 60, 50), Color(0.42, 0.4, 0.38))
+
+	# Forest patches (dark green)
+	draw_rect(Rect2(150, 40, 100, 70), Color(0.22, 0.4, 0.28))
+	draw_rect(Rect2(300, 200, 90, 80), Color(0.25, 0.42, 0.3))
+	draw_rect(Rect2(50, 140, 70, 60), Color(0.2, 0.38, 0.25))
+
+	# Water/waterfall (blue)
+	draw_rect(Rect2(350, 0, 35, 120), Color(0.28, 0.42, 0.55))  # River from top
+	draw_rect(Rect2(345, 110, 45, 25), Color(0.35, 0.5, 0.65))  # Waterfall pool
+	draw_rect(Rect2(360, 130, 25, 80), Color(0.28, 0.42, 0.55))  # River continues
+
+	# Paths (tan/brown)
+	draw_rect(Rect2(200, 0, 14, 320), Color(0.5, 0.45, 0.35))  # Vertical path
+	draw_rect(Rect2(0, 180, 480, 12), Color(0.5, 0.45, 0.35))  # Horizontal path
+
+func draw_title_frame_border(x: float, y: float, w: float, h: float):
+	# Decorative pixel border - circuit pattern with vine accents
+	var border_dark = Color(0.35, 0.25, 0.15)  # Dark brown outer
+	var border_mid = Color(0.5, 0.4, 0.3)  # Medium brown
+	var circuit_color = Color(0.25, 0.55, 0.5)  # Teal circuit traces
+
+	# Outer dark border
+	draw_rect(Rect2(x, y, w, 4), border_dark)
+	draw_rect(Rect2(x, y + h - 4, w, 4), border_dark)
+	draw_rect(Rect2(x, y, 4, h), border_dark)
+	draw_rect(Rect2(x + w - 4, y, 4, h), border_dark)
+
+	# Middle border layer
+	draw_rect(Rect2(x + 4, y + 4, w - 8, 2), border_mid)
+	draw_rect(Rect2(x + 4, y + h - 6, w - 8, 2), border_mid)
+	draw_rect(Rect2(x + 4, y + 4, 2, h - 8), border_mid)
+	draw_rect(Rect2(x + w - 6, y + 4, 2, h - 8), border_mid)
+
+	# Circuit trace accents (teal lines)
+	draw_rect(Rect2(x + 2, y + 2, w - 4, 1), circuit_color)
+	draw_rect(Rect2(x + 2, y + h - 3, w - 4, 1), circuit_color)
+	draw_rect(Rect2(x + 2, y + 2, 1, h - 4), circuit_color)
+	draw_rect(Rect2(x + w - 3, y + 2, 1, h - 4), circuit_color)
+
+	# Corner circuit nodes (small squares)
+	var node = 5
+	draw_rect(Rect2(x + 6, y + 6, node, node), circuit_color)
+	draw_rect(Rect2(x + w - 11, y + 6, node, node), circuit_color)
+	draw_rect(Rect2(x + 6, y + h - 11, node, node), circuit_color)
+	draw_rect(Rect2(x + w - 11, y + h - 11, node, node), circuit_color)
+
+	# Small circuit dots along edges
+	for i in range(5):
+		var dot_x = x + 40 + i * 70
+		if dot_x < x + w - 20:
+			draw_rect(Rect2(dot_x, y + 2, 3, 3), circuit_color)
+			draw_rect(Rect2(dot_x, y + h - 5, 3, 3), circuit_color)
+
+func draw_pixel_letter_bold(x: float, y: float, letter: String, color: Color, size: float):
+	# Draw bold pixel-style letter with thickness
+	# Multiple offset draws create the bold effect
+	draw_string(ThemeDB.fallback_font, Vector2(x, y), letter, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), color)
+	draw_string(ThemeDB.fallback_font, Vector2(x + 1, y), letter, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), color)
+	draw_string(ThemeDB.fallback_font, Vector2(x, y + 1), letter, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), color)
+	draw_string(ThemeDB.fallback_font, Vector2(x + 1, y + 1), letter, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), color)
+
 func draw_intro_screen():
-	draw_rect(Rect2(0, 0, 480, 320), Color(0.0, 0.3, 0.35))  # Teal outer background
-	draw_rect(Rect2(20, 20, 440, 280), Color(0.0, 0.4, 0.45))  # Teal inner background
-	draw_rect(Rect2(20, 20, 440, 280), Color(0.3, 0.8, 0.8), false, 2)  # Light teal border
+	draw_rect(Rect2(0, 0, 480, 320), Color(0.05, 0.35, 0.28))  # Jade green outer background
+	draw_rect(Rect2(20, 20, 440, 280), Color(0.08, 0.45, 0.35))  # Jade green inner background
+	draw_rect(Rect2(20, 20, 440, 280), Color(0.4, 0.8, 0.6), false, 2)  # Light jade border
 	
 	if intro_page < intro_text.size():
 		var lines = intro_text[intro_page]
@@ -4404,8 +7700,6 @@ func draw_exploration():
 			draw_town_center_area_overlay()
 	
 	# Draw world-space effects (with zoom)
-	if punch_effect_timer > 0:
-		draw_punch_effect()
 	if gadget_effect_active or flashlight_on:
 		draw_gadget_effect()
 	if patrol_active and current_area == Area.FARM:
@@ -4461,16 +7755,16 @@ func draw_entities_y_sorted():
 				entities.append({"type": "kid", "pos": kid_pos})
 			# Buildings (foot Y = where player stands in front)
 			# Trees - large trees foot at y+60, medium at y+44
-			# Positioned to avoid overlapping with buildings
-			entities.append({"type": "farm_tree_large", "pos": Vector2(95, 70), "draw_pos": Vector2(95, 10)})      # Top left - clear
-			entities.append({"type": "farm_tree_large", "pos": Vector2(450, 65), "draw_pos": Vector2(450, 5)})     # Top right corner
-			entities.append({"type": "farm_tree_large", "pos": Vector2(0, 280), "draw_pos": Vector2(0, 220)})      # Bottom left corner
+			# Positioned to avoid overlapping with buildings - using variety of tree types
+			entities.append({"type": "farm_oak_large", "pos": Vector2(95, 70), "draw_pos": Vector2(95, 10)})       # Top left - oak
+			entities.append({"type": "farm_pine_large", "pos": Vector2(450, 65), "draw_pos": Vector2(450, 5)})     # Top right - pine
+			entities.append({"type": "farm_oak_large", "pos": Vector2(0, 280), "draw_pos": Vector2(0, 220)})       # Bottom left - oak
 			# Medium tree in bottom right (away from shed/tunnel)
-			entities.append({"type": "farm_tree_medium", "pos": Vector2(460, 294), "draw_pos": Vector2(460, 250)})
+			entities.append({"type": "farm_autumn_medium", "pos": Vector2(460, 294), "draw_pos": Vector2(460, 250)})  # Autumn tree
 			# Main buildings
-			entities.append({"type": "farm_house", "pos": Vector2(320, 111)})  # foot at bottom
+			entities.append({"type": "farm_house", "pos": Vector2(320, 100)})  # foot at bottom
 			entities.append({"type": "farm_shed", "pos": Vector2(300, 235)})
-			entities.append({"type": "farm_chicken_coop", "pos": Vector2(140, 130)})
+			entities.append({"type": "farm_chicken_coop", "pos": Vector2(120, 126)})  # Matches draw at chicken_coop_pos (120, 90)
 			entities.append({"type": "farm_radiotower", "pos": Vector2(55, 110)})
 			# Tractor if visible
 			if tractor_visible:
@@ -4481,28 +7775,28 @@ func draw_entities_y_sorted():
 					entities.append({"type": "farm_patrol", "pos": patrol})
 		
 		Area.CORNFIELD:
-			# Farmhouse in distance (always behind, but include for consistency)
-			entities.append({"type": "cornfield_farmhouse", "pos": Vector2(380, 75)})
-			# NPCs
-			for npc in cornfield_npcs:
-				entities.append({"type": "generic_npc", "pos": npc.pos, "name": npc.name})
+			# NPCs (using dynamic positions for roaming NPCs)
+			entities.append({"type": "farmer_wen", "pos": farmer_wen_npc_pos})
+			entities.append({"type": "farmer_mae", "pos": farmer_mae_pos})
+			entities.append({"type": "old_chen", "pos": old_chen_npc_pos})
+			entities.append({"type": "young_taro", "pos": young_taro_pos})
 		
 		Area.LAKESIDE:
-			# Trees along edges
+			# Trees along edges - moved tree3 to left grass (away from sewer)
 			entities.append({"type": "lakeside_tree1", "pos": Vector2(40, 90), "draw_pos": Vector2(20, 40)})
 			entities.append({"type": "lakeside_tree2", "pos": Vector2(30, 300), "draw_pos": Vector2(10, 250)})
-			entities.append({"type": "lakeside_tree3", "pos": Vector2(460, 310), "draw_pos": Vector2(440, 260)})
+			entities.append({"type": "lakeside_tree3", "pos": Vector2(60, 200), "draw_pos": Vector2(40, 150)})
 			# Dock structure (west shore of lake)
-			entities.append({"type": "lakeside_dock", "pos": Vector2(180, 190)})
+			entities.append({"type": "lakeside_dock", "pos": Vector2(250, 130)})
 			# Rocks on shore
 			entities.append({"type": "lakeside_rock1", "pos": Vector2(80, 200)})
 			entities.append({"type": "lakeside_rock2", "pos": Vector2(120, 280)})
 			# Sewer entrance in rocky outcrop (bottom-right)
 			# Y-sort at top of doorway so player appears in front when below
 			entities.append({"type": "lakeside_sewer", "pos": Vector2(tunnel_pos.x, tunnel_pos.y - 10)})
-			# NPCs
-			for npc in lakeside_npcs:
-				entities.append({"type": "generic_npc", "pos": npc.pos, "name": npc.name})
+			# NPCs (stationary)
+			entities.append({"type": "fisher_bo", "pos": fisher_bo_npc_pos})
+			entities.append({"type": "old_mira", "pos": old_mira_npc_pos})
 		
 		Area.TOWN_CENTER:
 			# Cherry blossom trees - positioned in corners away from buildings
@@ -4510,17 +7804,31 @@ func draw_entities_y_sorted():
 			entities.append({"type": "cherry_tree", "pos": Vector2(465, 45), "draw_pos": Vector2(440, 0)})    # Top right corner (away from bakery)
 			entities.append({"type": "cherry_tree", "pos": Vector2(25, 295), "draw_pos": Vector2(0, 250)})    # Bottom left corner
 			entities.append({"type": "cherry_tree", "pos": Vector2(465, 295), "draw_pos": Vector2(440, 250)}) # Bottom right corner
-			# Buildings with their foot Y positions
-			entities.append({"type": "town_shop", "pos": Vector2(70, 92)})
-			entities.append({"type": "town_hall", "pos": Vector2(240, 107)})
-			entities.append({"type": "town_bakery", "pos": Vector2(405, 92)})
-			entities.append({"type": "town_house1", "pos": Vector2(80, 262)})
-			entities.append({"type": "town_well", "pos": Vector2(240, 305)})
-			entities.append({"type": "town_house2", "pos": Vector2(405, 277)})
-			# NPCs
-			for npc in town_npcs:
-				entities.append({"type": "generic_npc", "pos": npc.pos, "name": npc.name})
-	
+			# Buildings with their foot Y positions (128x128 sprites)
+			entities.append({"type": "town_shop", "pos": Vector2(94, 138)})      # Shop at (30, 10)
+			entities.append({"type": "town_hall", "pos": Vector2(244, 108)})     # Town Hall at (180, -20)
+			entities.append({"type": "town_bakery", "pos": Vector2(399, 138)})   # Bakery at (335, 10)
+			entities.append({"type": "town_well", "pos": Vector2(242, 314)})    # Well drawn at (210, 250), 64px tall
+			# NPCs (using dynamic positions for roaming NPCs)
+			entities.append({"type": "elder_sato", "pos": elder_sato_npc_pos})
+			entities.append({"type": "child_mei", "pos": child_mei_pos})
+			entities.append({"type": "guard_tanaka", "pos": guard_tanaka_pos})
+			# Milo hangs out in town center - visible and interactable when resting
+			if milo_in_town or milo_returned_to_town:
+				kid_facing = "down"  # Face south when idling in town
+				entities.append({"type": "kid", "pos": milo_town_pos})
+
+	# Add roaming animals to entity system for proper Y-sorting
+	var area_name = ""
+	match current_area:
+		Area.FARM: area_name = "farm"
+		Area.CORNFIELD: area_name = "cornfield"
+		Area.LAKESIDE: area_name = "lakeside"
+		Area.TOWN_CENTER: area_name = "town_center"
+	for animal in roaming_animals:
+		if animal.area == area_name:
+			entities.append({"type": "roaming_animal", "pos": animal.pos, "animal": animal})
+
 	# Sort by Y position (lower Y drawn first, appears behind)
 	entities.sort_custom(func(a, b): return a.pos.y < b.pos.y)
 	
@@ -4532,35 +7840,57 @@ func draw_entities_y_sorted():
 			"kaido": draw_kaido(e.pos)
 			"grandmother": draw_grandmother(e.pos)
 			"farmer_wen": draw_farmer_wen(e.pos)
+			"farmer_mae": draw_farmer_mae()
+			"old_chen": draw_old_chen(e.pos)
+			"young_taro": draw_young_taro()
+			"fisher_bo": draw_fisher_bo(e.pos)
+			"old_mira": draw_old_mira(e.pos)
+			"elder_sato": draw_elder_sato(e.pos)
+			"child_mei": draw_child_mei()
+			"guard_tanaka": draw_guard_tanaka()
 			"kid": draw_kid(e.pos)
 			"generic_npc": draw_generic_npc(e.pos, e.name)
-			# Farm buildings
+			# Farm buildings - variety of tree types
 			"farm_tree_large": draw_tree_large(e.draw_pos.x, e.draw_pos.y)
 			"farm_tree_medium": draw_tree_medium(e.draw_pos.x, e.draw_pos.y)
-			"farm_house": draw_house(275, 35)
+			"farm_oak_large": draw_oak_tree(e.draw_pos.x, e.draw_pos.y, true)
+			"farm_oak_medium": draw_oak_tree(e.draw_pos.x, e.draw_pos.y, false)
+			"farm_pine_large": draw_pine_tree(e.draw_pos.x, e.draw_pos.y, true)
+			"farm_pine_medium": draw_pine_tree(e.draw_pos.x, e.draw_pos.y, false)
+			"farm_autumn_large": draw_autumn_tree(e.draw_pos.x, e.draw_pos.y, true)
+			"farm_autumn_medium": draw_autumn_tree(e.draw_pos.x, e.draw_pos.y, false)
+			"farm_cherry_large": draw_cherry_tree(e.draw_pos.x, e.draw_pos.y, true)
+			"farm_dead_tree": draw_dead_tree(e.draw_pos.x, e.draw_pos.y)
+			"farm_house": draw_house(250, -20)
 			"farm_shed": draw_shed_sprite(e.pos.x - 25, e.pos.y - 60)
 			"farm_chicken_coop": draw_chicken_coop(chicken_coop_pos.x, chicken_coop_pos.y)
 			"farm_radiotower": draw_radiotower_large(30, 20)
 			"farm_tractor": draw_tractor(tractor_pos.x, tractor_pos.y)
 			"farm_patrol": draw_robot_soldier(e.pos)
-			# Cornfield
-			"cornfield_farmhouse": draw_cornfield_farmhouse()
-			# Lakeside
-			"lakeside_tree1": draw_tree_large(e.draw_pos.x, e.draw_pos.y)
-			"lakeside_tree2": draw_tree_medium(e.draw_pos.x, e.draw_pos.y)
-			"lakeside_tree3": draw_tree_small(e.draw_pos.x, e.draw_pos.y)
-			"lakeside_dock": draw_lakeside_dock_topdown(160, 155)
+			# Lakeside - variety of tree types
+			"lakeside_tree1": draw_cherry_tree(e.draw_pos.x, e.draw_pos.y, true)
+			"lakeside_tree2": draw_pine_tree(e.draw_pos.x, e.draw_pos.y, true)
+			"lakeside_tree3": draw_autumn_tree(e.draw_pos.x, e.draw_pos.y, false)
+			"lakeside_dock": draw_lakeside_dock_topdown(250, 150)
 			"lakeside_sewer": draw_tunnel_entrance(tunnel_pos.x - 20, tunnel_pos.y - 30)
 			"lakeside_rock1": draw_rock_cluster(80, 195)
 			"lakeside_rock2": draw_rock_cluster(120, 275)
 			# Town buildings
-			"cherry_tree": draw_cherry_blossom_tree(e.draw_pos.x, e.draw_pos.y)
+			"cherry_tree": draw_cherry_tree(e.draw_pos.x, e.draw_pos.y, true)
 			"town_shop": draw_town_building_shop()
 			"town_hall": draw_town_building_hall()
 			"town_bakery": draw_town_building_bakery()
 			"town_well": draw_town_building_well()
 			"town_house1": draw_town_building_house1()
 			"town_house2": draw_town_building_house2()
+			# Roaming animals (Y-sorted with player)
+			"roaming_animal": draw_single_roaming_animal(e.animal)
+
+func draw_single_roaming_animal(animal: Dictionary):
+	# Use the existing draw_ninja_animal function which handles all animal types properly
+	var home = animal.get("home", animal.pos)
+	var hit_flash = animal.get("hit_flash", 0.0)
+	draw_ninja_animal(animal.pos, animal.type, animal.dir, home, hit_flash)
 
 func draw_farm_area():
 	# Draw farm background only (buildings handled by Y-sorted entity drawing)
@@ -4572,19 +7902,22 @@ func draw_farm_area():
 	draw_rocks()
 	draw_flowers()
 	draw_fence(30, 275, 6)
-	draw_farm_plot(35, 200, 4, 3)
-	draw_irrigation_system(70, 210)
+	draw_farm_plot(35, 240, 4, 3)
+	draw_irrigation_system(20, 150)  # Just below pathway on left grass
 	draw_secret_sparkles()
-	draw_dark_areas()
 	# Note: Buildings, trees, NPCs drawn by draw_entities_y_sorted()
+	# Dark areas moved to overlay so they appear ON TOP of trees
 
 func draw_farm_area_overlay():
+	# Dark areas drawn here so they appear ON TOP of trees
+	draw_dark_areas()
+
 	# Wooden road signs in grass areas (well off pathways)
 	# Right sign pointing to Town Center (in grass, not on road)
-	draw_road_sign(425, 110, "Town ->", true)
+	draw_road_sign(425, 108, "Town ->", true)
 	
-	# Left sign pointing to Minigame (in grass, not on road)
-	draw_road_sign(5, 110, "<- Game", false)
+	# Left sign pointing to Stampede (in grass, not on road)
+	draw_road_sign(5, 108, "<- Stampede", false)
 	
 	# Up sign pointing to Cornfield (on grass left of vertical path)
 	draw_road_sign_vertical(140, 10, "Cornfield", true)
@@ -4594,7 +7927,75 @@ func draw_farm_area_overlay():
 	
 	# Draw tumbleweeds blowing across the farm
 	draw_tumbleweeds()
-	
+
+	# Signal lights along escape path (after LED chain is built)
+	if cornfield_led_placed:
+		draw_escape_signal_lights_farm()
+
+func draw_escape_signal_lights_farm():
+	# Signal lights guiding from top entrance (cornfield) down to bottom exit (lakeside)
+	# Along the vertical path (x ~215-240, from top to bottom)
+	var lights_farm = [
+		# From top (cornfield entrance) going down
+		Vector2(185, 40),   # Top near cornfield entrance
+		Vector2(190, 85),
+		Vector2(185, 130),
+		Vector2(190, 175),
+		Vector2(185, 220),
+		Vector2(190, 265),
+		Vector2(185, 300),  # Bottom near lakeside exit
+	]
+	draw_signal_light_chain(lights_farm)
+
+func draw_escape_signal_lights_cornfield():
+	# Signal lights guiding down the cornfield path toward farm
+	var lights_cornfield = [
+		Vector2(165, 150),  # Near center of cornfield
+		Vector2(170, 195),
+		Vector2(165, 235),
+		Vector2(170, 280),  # Near exit to farm
+	]
+	draw_signal_light_chain(lights_cornfield)
+
+func draw_escape_signal_lights_lakeside():
+	# Signal lights guiding along beach toward sewer tunnel
+	# Path: from entrance at top, along the shore, to tunnel_pos (430, 285)
+	var lights_lakeside = [
+		Vector2(165, 60),   # Near entrance from farm
+		Vector2(155, 110),
+		Vector2(130, 155),  # Curving toward beach
+		Vector2(115, 200),
+		Vector2(140, 240),  # Along shore
+		Vector2(195, 265),
+		Vector2(265, 280),  # Toward tunnel
+		Vector2(340, 285),
+		Vector2(400, 285),  # Near tunnel entrance
+	]
+	draw_signal_light_chain(lights_lakeside)
+
+func draw_signal_light_chain(positions: Array):
+	# Draw a chain of signal lights with cascading animation
+	var base_time = continuous_timer * 2.5
+	for i in range(positions.size()):
+		var pos = positions[i]
+		# Cascading pulse - each light activates slightly after the previous
+		var phase = base_time - i * 0.4
+		var pulse = sin(phase) * 0.5 + 0.5
+		pulse = clamp(pulse, 0.0, 1.0)
+
+		# Warm orange/yellow LED glow
+		var intensity = 0.3 + pulse * 0.7
+		var outer_color = Color(1.0, 0.6, 0.1, intensity * 0.4)
+		var inner_color = Color(1.0, 0.9, 0.3, intensity * 0.9)
+		var core_color = Color(1.0, 1.0, 0.8, intensity)
+
+		# Glow layers
+		draw_circle(pos, 12, outer_color)
+		draw_circle(pos, 7, inner_color)
+		draw_circle(pos, 3, core_color)
+
+		# Small post/stake for the light
+		draw_rect(Rect2(pos.x - 1, pos.y, 2, 8), Color(0.4, 0.3, 0.25))
 
 func draw_road_sign(x: float, y: float, text: String, arrow_right: bool):
 	var wood = Color(0.55, 0.4, 0.3)
@@ -4680,7 +8081,7 @@ func _deprecated_draw_environment():
 	draw_bushes()
 	draw_rocks()
 	draw_flowers()
-	draw_house(275, 35)
+	draw_house(275, -60)
 	draw_shed_sprite(315, 210)  # Shed in grass (shed_pos - offset)
 	draw_fence(30, 275, 6)
 	draw_farm_plot(35, 200, 4, 3)
@@ -4691,7 +8092,7 @@ func _deprecated_draw_environment():
 	draw_secret_sparkles()
 	
 	# Always visible from the start
-	draw_irrigation_system(70, 210)
+	draw_irrigation_system(20, 195)  # Just below pathway on left grass
 	draw_radiotower_large(30, 20)
 	
 	# Tunnel/sewer entrance always visible
@@ -5011,6 +8412,25 @@ func draw_tree_medium(x: float, y: float):
 func draw_tree_small(x: float, y: float):
 	area_draw.draw_tree_small(x, y)
 
+# New tree type wrappers - Ninja Adventure sprites
+func draw_oak_tree(x: float, y: float, large: bool = true):
+	area_draw.draw_oak_tree(x, y, large)
+
+func draw_pine_tree(x: float, y: float, large: bool = true):
+	area_draw.draw_pine_tree(x, y, large)
+
+func draw_cherry_tree(x: float, y: float, large: bool = true):
+	area_draw.draw_cherry_tree(x, y, large)
+
+func draw_autumn_tree(x: float, y: float, large: bool = true):
+	area_draw.draw_autumn_tree(x, y, large)
+
+func draw_dead_tree(x: float, y: float):
+	area_draw.draw_dead_tree(x, y)
+
+func draw_snow_tree(x: float, y: float, large: bool = true):
+	area_draw.draw_snow_tree(x, y, large)
+
 func draw_bushes():
 	# Removed - keeping paths clear
 	pass
@@ -5044,8 +8464,9 @@ func draw_shed(x: float, y: float):
 func draw_shed_sprite(x: float, y: float):
 	# Draw shed using sprite if available, fallback to procedural
 	if tex_shed:
-		var tex_width = tex_shed.get_width()
-		var tex_height = tex_shed.get_height()
+		var scale = 1.2  # 20% larger
+		var tex_width = tex_shed.get_width() * scale
+		var tex_height = tex_shed.get_height() * scale
 		var dest = Rect2(x, y, tex_width, tex_height)
 		draw_texture_rect(tex_shed, dest, false)
 	else:
@@ -5074,6 +8495,45 @@ func draw_farm_plot(x: float, y: float, cols: int, rows: int):
 
 func draw_irrigation_system(x: float, y: float):
 	area_draw.draw_irrigation_system(x, y)
+	# Add water drops when irrigation is fixed (quest_stage > 7)
+	if quest_stage > 7:
+		draw_irrigation_water_drops(x, y)
+
+func draw_irrigation_water_drops(x: float, y: float):
+	# Animated water drops falling from irrigation pipes
+	var time = continuous_timer
+	var water_color = Color(0.4, 0.7, 0.95, 0.8)
+	var splash_color = Color(0.5, 0.8, 1.0, 0.5)
+
+	# 4 vertical pipes at x + 10, 30, 50, 70 (each 20 apart)
+	for i in range(4):
+		var pipe_x = x + 12 + i * 20
+
+		# Each pipe has multiple drops at different phases
+		for drop in range(3):
+			# Stagger the drops using different time offsets
+			var drop_time = time * 2.5 + drop * 0.7 + i * 0.3
+			var drop_phase = fmod(drop_time, 1.0)
+
+			# Drop falls from y + 45 to y + 70
+			var drop_y = y + 45 + drop_phase * 30
+
+			# Fade out as drop falls
+			var alpha = (1.0 - drop_phase) * 0.9
+
+			# Draw water drop (small teardrop)
+			draw_circle(Vector2(pipe_x, drop_y), 2, Color(water_color.r, water_color.g, water_color.b, alpha))
+			draw_circle(Vector2(pipe_x, drop_y - 2), 1.5, Color(water_color.r, water_color.g, water_color.b, alpha * 0.7))
+
+			# Splash at bottom when drop reaches end
+			if drop_phase > 0.85:
+				var splash_alpha = (drop_phase - 0.85) / 0.15 * 0.6
+				var splash_size = (drop_phase - 0.85) / 0.15 * 4
+				draw_circle(Vector2(pipe_x, y + 75), splash_size, Color(splash_color.r, splash_color.g, splash_color.b, (1.0 - splash_alpha) * 0.4))
+
+	# Small puddle under irrigation (always visible when working)
+	draw_circle(Vector2(x + 40, y + 78), 25, Color(0.3, 0.55, 0.75, 0.15))
+	draw_circle(Vector2(x + 40, y + 78), 18, Color(0.4, 0.65, 0.85, 0.1))
 
 func draw_crops(x: float, y: float, healthy: bool):
 	area_draw.draw_crops(x, y, healthy)
@@ -5135,23 +8595,33 @@ func draw_tunnel_entrance(x: float, y: float):
 		draw_texture_rect(tex_sewer, Rect2(x, y, w, h), false)
 
 func draw_dark_areas():
+	var was_in_dark = in_dark_area
+	in_dark_area = false
+
 	for area in dark_areas:
 		var pos = area.pos
 		var radius = area.radius
 		var area_name = area.name
-		
+
 		# Check if already discovered
 		var already_discovered = area_name in discovered_areas
-		
+
+		# Check if player is inside this dark area
+		var player_dist = player_pos.distance_to(pos)
+		var player_in_this_area = player_dist < radius + 10
+
+		if player_in_this_area and not already_discovered:
+			in_dark_area = true
+
 		# Check if flashlight beam is hitting this area
 		var light_pos = get_flashlight_pos() if flashlight_on else player_pos
 		var is_being_lit = flashlight_on and light_pos.distance_to(pos) < radius + 30
-		
+
 		# Mark as discovered when lit
 		if is_being_lit and not already_discovered:
 			discovered_areas.append(area_name)
 			already_discovered = true
-		
+
 		if already_discovered:
 			# Permanently revealed - show the area clearly
 			draw_circle(pos, radius, Color(0.3, 0.28, 0.22, 0.4))
@@ -5169,28 +8639,57 @@ func draw_dark_areas():
 			var pulse = sin(continuous_timer * 2) * 0.2 + 0.6
 			draw_string(ThemeDB.fallback_font, Vector2(pos.x - 4, pos.y + 5), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.4, 0.35, 0.3, pulse))
 
+	# Trigger flashlight reminder when entering dark area for first time
+	if in_dark_area and not was_in_dark and not flashlight_reminder_shown and not flashlight_on:
+		if equipped_gadget == "led_lamp" or "led_lamp" in gadgets:
+			trigger_flashlight_reminder()
+
+func trigger_flashlight_reminder():
+	# Show Kaido's popup reminding player to use flashlight
+	flashlight_reminder_shown = true
+
+	# Queue Kaido's dialogue
+	dialogue_queue = [
+		{"speaker": "kaido", "text": "It's too dark to see here!"},
+		{"speaker": "kaido", "text": "Use your flashlight! Press R1 to turn it on."},
+	]
+	next_dialogue()
+
 func draw_patrol():
 	for pos in patrol_positions:
 		if pos.x > 0 and pos.x < 480:
 			draw_robot_soldier(pos)
 
 func draw_robot_soldier(pos: Vector2):
-	# Robot body - menacing red/black
+	# Use heavy robot walking animation if loaded
+	if heavy_robot_anim_loaded and tex_heavy_robot_walk_west.size() > 0:
+		# Robots march left (west direction)
+		var frame = int(anim_timer * 8) % tex_heavy_robot_walk_west.size()
+		var tex = tex_heavy_robot_walk_west[frame]
+		if tex:
+			var w = tex.get_width()
+			var h = tex.get_height()
+			var scale = 1.5  # Match player size
+			var dest = Rect2(pos.x - (w * scale)/2, pos.y - (h * scale) + 10, w * scale, h * scale)
+			draw_texture_rect(tex, dest, false)
+			return
+
+	# Fallback: procedural robot (menacing red/black)
 	var body_color = Color(0.35, 0.18, 0.18)
 	var accent = Color(1.0, 0.25, 0.25)
 	var outline = Color(0.0, 0.0, 0.0)
-	
+
 	# Body outline
 	draw_rect(Rect2(pos.x - 9, pos.y - 21, 18, 24), outline)
 	draw_rect(Rect2(pos.x - 11, pos.y - 25, 22, 8), outline)
-	
+
 	# Body
 	draw_rect(Rect2(pos.x - 8, pos.y - 20, 16, 22), body_color)
 	draw_rect(Rect2(pos.x - 10, pos.y - 24, 20, 6), body_color)
-	
+
 	# Red visor
 	draw_rect(Rect2(pos.x - 6, pos.y - 22, 12, 3), accent)
-	
+
 	# Legs (marching) with outline
 	var leg_offset = sin(anim_timer * 8) * 3
 	draw_rect(Rect2(pos.x - 7, pos.y + 1, 6, 12 + leg_offset), outline)
@@ -5199,19 +8698,51 @@ func draw_robot_soldier(pos: Vector2):
 	draw_rect(Rect2(pos.x + 2, pos.y + 2, 4, 10 - leg_offset), body_color)
 
 func draw_kid(pos: Vector2):
-	# Shadow
-	draw_ellipse_shape(Vector2(pos.x, pos.y + 3), Vector2(8, 3), Color(0, 0, 0, 0.25))
-	
-	# Use custom Kid Milo sprite if available
-	if tex_kid_milo:
+	# Shadow (same size as player)
+	draw_ellipse_shape(Vector2(pos.x, pos.y + 2), Vector2(10, 4), Color(0, 0, 0, 0.25))
+
+	# Use new Milo sprites from milo_villager folder
+	var tex: Texture2D = null
+
+	# Check if running (walking_in means running onto screen)
+	if milo_is_running and tex_milo_run_south.size() > 0:
+		# Use running animation frames
+		var frame = milo_anim_frame % 4
+		match kid_facing:
+			"down":
+				if tex_milo_run_south.size() > frame:
+					tex = tex_milo_run_south[frame]
+			"up":
+				if tex_milo_run_north.size() > frame:
+					tex = tex_milo_run_north[frame]
+			"left":
+				if tex_milo_run_west.size() > frame:
+					tex = tex_milo_run_west[frame]
+			"right":
+				if tex_milo_run_east.size() > frame:
+					tex = tex_milo_run_east[frame]
+	else:
+		# Use idle/rotation sprites
+		match kid_facing:
+			"down": tex = tex_milo_south
+			"up": tex = tex_milo_north
+			"left": tex = tex_milo_west
+			"right": tex = tex_milo_east
+
+	if tex:
+		var w = tex.get_width()
+		var h = tex.get_height()
+		# Draw at 1:1 scale to match player size
+		var dest = Rect2(pos.x - w/2, pos.y - h + 4, w, h)
+		draw_texture_rect(tex, dest, false)
+	elif tex_kid_milo:
+		# Fallback to legacy sprite
 		var w = tex_kid_milo.get_width()
 		var h = tex_kid_milo.get_height()
 		var dest = Rect2(pos.x - w/2, pos.y - h + 6, w, h)
+		if kid_facing == "right":
+			dest = Rect2(pos.x + w/2, pos.y - h + 6, -w, h)
 		draw_texture_rect(tex_kid_milo, dest, false)
-	elif tex_ninja_villager2:
-		var src = Rect2(0, 0, 16, 16)
-		var dest = Rect2(pos.x - 10, pos.y - 24, 20, 20)
-		draw_texture_rect_region(tex_ninja_villager2, dest, src)
 
 func draw_ellipse_shape(center: Vector2, size: Vector2, color: Color):
 	var points = PackedVector2Array()
@@ -5264,44 +8795,68 @@ func draw_kaido_character():
 
 func draw_cornfield_area_background():
 	# Draw cornfield background (no NPCs or farmhouse - those are Y-sorted)
-	var corn_yellow = Color(0.85, 0.75, 0.35)
-	var corn_green = Color(0.45, 0.65, 0.35)
-	var corn_dark = Color(0.35, 0.5, 0.28)
 	var dirt = Color(0.65, 0.5, 0.35)
 	var dirt_dark = Color(0.5, 0.4, 0.28)
-	var sky = Color(0.5, 0.65, 0.85)
-	
-	# Sky at top
-	draw_rect(Rect2(0, 0, 480, 60), sky)
-	
-	# Ground
-	draw_rect(Rect2(0, 60, 480, 260), Color(0.55, 0.45, 0.3))
-	
-	# Corn rows with better detail
-	for row in range(8):
-		var y = 80 + row * 30
-		for col in range(12):
-			var x = 20 + col * 40 + (row % 2) * 20
-			# Skip corn in path area
-			if x > 195 and x < 285:
-				continue
-			# Corn stalk with shading
-			draw_rect(Rect2(x - 1, y, 6, 35), corn_dark)
-			draw_rect(Rect2(x, y, 4, 35), corn_green)
-			draw_rect(Rect2(x, y, 1, 35), Color(0.55, 0.75, 0.45))
-			# Corn cob
-			draw_rect(Rect2(x - 4, y + 10, 12, 15), Color(0.75, 0.65, 0.28))
-			draw_rect(Rect2(x - 3, y + 11, 10, 13), corn_yellow)
-			# Leaves
-			draw_rect(Rect2(x - 10, y + 5, 10, 3), corn_green)
-			draw_rect(Rect2(x - 10, y + 5, 10, 1), Color(0.55, 0.75, 0.45))
-			draw_rect(Rect2(x + 4, y + 8, 10, 3), corn_green)
-	
-	# Path through corn - use dirt tiles like farm
+
+	# Beautiful sky gradient at top
+	for i in range(12):
+		var sky_y = i * 5
+		var t = float(i) / 12.0
+		# Gradient from light blue at top to lighter near horizon
+		var sky_col = Color(0.45 + t * 0.15, 0.6 + t * 0.1, 0.88 - t * 0.05)
+		draw_rect(Rect2(0, sky_y, 480, 5), sky_col)
+
+	# Distant mountains silhouette
+	var mountain_color = Color(0.35, 0.45, 0.55, 0.7)
+	var mountain_pts = PackedVector2Array([
+		Vector2(0, 70),
+		Vector2(30, 45), Vector2(60, 55),
+		Vector2(100, 35), Vector2(140, 50),
+		Vector2(180, 40), Vector2(220, 55),
+		Vector2(260, 30), Vector2(300, 48),
+		Vector2(340, 38), Vector2(380, 52),
+		Vector2(420, 42), Vector2(460, 50),
+		Vector2(480, 45), Vector2(480, 70),
+	])
+	draw_colored_polygon(mountain_pts, mountain_color)
+
+	# Closer hills (darker)
+	var hill_color = Color(0.3, 0.4, 0.35, 0.8)
+	var hill_pts = PackedVector2Array([
+		Vector2(0, 70),
+		Vector2(50, 58), Vector2(120, 65),
+		Vector2(200, 55), Vector2(280, 62),
+		Vector2(360, 52), Vector2(440, 60),
+		Vector2(480, 55), Vector2(480, 70),
+	])
+	draw_colored_polygon(hill_pts, hill_color)
+
+	# Horizon line
+	draw_rect(Rect2(0, 68, 480, 2), Color(0.4, 0.5, 0.4))
+
+	# Ground under corn - dark red tiles (overlapping, no gaps)
+	if tex_dark_red_tile:
+		var tile_w = tex_dark_red_tile.get_width()
+		var tile_h = tex_dark_red_tile.get_height()
+		# Tile with slight overlap to prevent gaps
+		var step_x = tile_w - 1
+		var step_y = tile_h - 1
+		for ty in range(60, 325, step_y):
+			for tx in range(-tile_w, 485, step_x):
+				# Skip the path area (will be covered by dirt tiles)
+				if tx + tile_w > 200 and tx < 280:
+					continue
+				draw_texture(tex_dark_red_tile, Vector2(tx, ty))
+	else:
+		# Fallback solid color
+		draw_rect(Rect2(0, 60, 480, 260), Color(0.55, 0.45, 0.3))
+
+	# Path through corn - use dirt tiles
 	if tex_dirt_tile:
 		var tile_w = tex_dirt_tile.get_width()
 		var tile_h = tex_dirt_tile.get_height()
-		for ty in range(60, 320, tile_h):
+		var step_y = tile_h - 1  # Overlap for no gaps
+		for ty in range(60, 325, step_y):
 			for tx in range(200, 280, tile_w):
 				draw_texture(tex_dirt_tile, Vector2(tx, ty))
 	else:
@@ -5309,33 +8864,97 @@ func draw_cornfield_area_background():
 		draw_rect(Rect2(200, 60, 6, 260), dirt_dark)
 		draw_rect(Rect2(274, 60, 6, 260), dirt_dark)
 		draw_rect(Rect2(235, 60, 10, 260), Color(0.75, 0.6, 0.45))
+
+	# Draw corn using sprite with wind animation
+	if tex_corn:
+		var corn_w = tex_corn.get_width()
+		var corn_h = tex_corn.get_height()
+		var scale = 0.35  # Scale corn to realistic NPC-relative size
+		var draw_w = corn_w * scale
+		var draw_h = corn_h * scale
+
+		# Corn rows - less dense for better visibility
+		# Rows staggered for natural look (start below horizon at y=70)
+		for row in range(9):  # Fewer rows to fit below horizon
+			var base_y = 75 + row * 26  # Start below horizon, wider vertical spacing
+			for col in range(14):  # Fewer columns
+				var base_x = -10 + col * 35 + (row % 2) * 17  # Wider horizontal spacing
+
+				# Skip corn in path area (center path)
+				if base_x > 180 and base_x < 300:
+					continue
+
+				# Wind animation - gentle sway based on position and time
+				# Different phase offset for each corn stalk creates natural wave effect
+				var wind_speed = 1.2  # Slower, gentler wind wave
+				var wind_strength = 0.6  # Subtle sway
+				var phase_offset = (base_x * 0.05 + base_y * 0.03)  # Creates wave pattern
+				var wind_sway = sin(continuous_timer * wind_speed + phase_offset) * wind_strength
+
+				# Slight scale variation for natural look
+				var scale_vary = 0.9 + (sin(base_x * 0.1 + base_y * 0.15) * 0.1)
+				var final_w = draw_w * scale_vary
+				var final_h = draw_h * scale_vary
+
+				# Apply wind sway to x position (top of corn sways more)
+				var draw_x = base_x + wind_sway - final_w / 2
+				var draw_y = base_y - final_h + 10
+
+				# Slight tint variation for depth
+				var tint_vary = 0.9 + (row % 3) * 0.05
+				var corn_color = Color(tint_vary, tint_vary, tint_vary, 1.0)
+
+				draw_texture_rect(tex_corn, Rect2(draw_x, draw_y, final_w, final_h), false, corn_color)
+	else:
+		# Fallback procedural corn if sprite not loaded
+		var corn_yellow = Color(0.85, 0.75, 0.35)
+		var corn_green = Color(0.45, 0.65, 0.35)
+		var corn_dark = Color(0.35, 0.5, 0.28)
+		for row in range(10):
+			var y = 70 + row * 25
+			for col in range(16):
+				var x = 10 + col * 30 + (row % 2) * 15
+				if x > 195 and x < 285:
+					continue
+				# Wind sway for procedural corn too - gentle sway
+				var wind_sway = sin(continuous_timer * 1.2 + x * 0.05 + y * 0.03) * 0.8
+				draw_rect(Rect2(x - 1 + wind_sway * 0.3, y, 5, 30), corn_dark)
+				draw_rect(Rect2(x + wind_sway * 0.3, y, 3, 30), corn_green)
+				draw_rect(Rect2(x - 3 + wind_sway * 0.5, y + 8, 10, 12), corn_yellow)
+
 	# Note: Farmhouse drawn by Y-sorted entity system
 
 func draw_cornfield_area_overlay():
 	# LED chain placement indicator
 	if quest_stage == 12 and not cornfield_led_placed:
 		var pulse = (sin(continuous_timer * 3) * 0.3 + 0.7)
-		draw_circle(Vector2(240, 150), 20, Color(0.2, 0.8, 0.3, pulse * 0.5))
 		draw_string(ThemeDB.fallback_font, Vector2(200, 180), "Place LED Chain", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, pulse))
-	
+
+	# Signal lights along escape path (after LED chain is built)
+	if cornfield_led_placed:
+		draw_escape_signal_lights_cornfield()
+
 	# Journal page sparkle
 	draw_area_journal_sparkles("cornfield")
-	
+
 	# Exit sign (in grass on left side of path)
 	draw_road_sign_vertical(165, 290, "Farm", false)
-	
-	# Draw roaming animals
-	draw_roaming_animals_for_area("cornfield")
-	
+
+	# Draw tumbleweeds blowing across the cornfield
+	draw_tumbleweeds()
 
 # Keep old function for compatibility
 func draw_cornfield_area():
 	draw_cornfield_area_background()
-	# Draw farmhouse
-	draw_cornfield_farmhouse()
-	# Draw NPCs
-	for npc in cornfield_npcs:
-		draw_generic_npc(npc.pos, npc.name)
+	# Draw NPCs using new sprite system
+	# Farmer Wen stands near cornfield
+	draw_farmer_wen(farmer_wen_npc_pos)
+	# Farmer Mae roams
+	draw_farmer_mae()
+	# Old Chen is stationary
+	draw_old_chen(old_chen_npc_pos)
+	# Young Taro roams nervously
+	draw_young_taro()
 	draw_cornfield_area_overlay()
 
 func draw_lakeside_area_background():
@@ -5389,27 +9008,6 @@ func draw_lakeside_area_background():
 		draw_circle(Vector2(300, 190), 80, water_deep)
 		draw_circle(Vector2(345, 155), 85, water_mid)
 
-	# Draw sandy shore using lake_sand tiles - overlapping for seamless coverage
-	if tex_lake_sand:
-		# West shore (near dock) - overlapping tiles (step 16 for 32px tiles)
-		for sx in range(144, 256, 16):
-			for sy in range(80, 224, 16):
-				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
-		# South shore - overlapping tiles
-		for sx in range(208, 432, 16):
-			for sy in range(208, 320, 16):
-				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
-		# North shore - overlapping tiles
-		for sx in range(272, 464, 16):
-			for sy in range(-16, 64, 16):
-				draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
-	else:
-		# Fallback: procedural sand
-		var sand = Color(0.78, 0.70, 0.55)
-		draw_rect(Rect2(144, 80, 112, 144), sand)
-		draw_rect(Rect2(208, 208, 224, 112), sand)
-		draw_rect(Rect2(272, 0, 192, 64), sand)
-
 	# Dirt path from top (farm exit) - use dirt tiles like farm
 	if tex_dirt_tile:
 		var tile_w = tex_dirt_tile.get_width()
@@ -5423,96 +9021,172 @@ func draw_lakeside_area_background():
 		draw_circle(Vector2(240, 100), 30, dirt_path)
 		draw_circle(Vector2(230, 120), 25, dirt_path_light)
 
-	# Rocky outcrop in bottom-right (near sewer) - overlapping tiles
-	if tex_cliff_rock:
-		for rx in range(352, 480, 16):
-			for ry in range(208, 320, 16):
-				draw_texture_rect(tex_cliff_rock, Rect2(rx, ry, 32, 32), false)
+	# Draw sandy shore - AFTER dirt path so sand covers the path near beach
+	if tex_lake_sand:
+		# Sand forms a narrow beach band on coast - NEVER on water
+		for sx in range(100, 480, 16):
+			for sy in range(0, 320, 16):
+				var tile_center = Vector2(sx + 16, sy + 16)
+				# Check distance from lake centers
+				var dist1 = Vector2(340, 160).distance_to(tile_center)
+				var dist2 = Vector2(380, 140).distance_to(tile_center)
+				var dist3 = Vector2(300, 190).distance_to(tile_center)
+				# Path transition area: wider at top, narrows near the bridge at bottom
+				var on_path_to_beach = false
+				if sy > 140:
+					# Bottom near bridge - narrower coverage
+					on_path_to_beach = sx >= 180 and sx <= 245
+				elif sy > 0:
+					# Top of path - wide coverage
+					on_path_to_beach = sx >= 180 and sx <= 250
+
+				# Check if in water - allow overlap (20px into water edge)
+				var in_water = dist1 < 105 or dist2 < 75 or dist3 < 65
+
+				# Skip water tiles UNLESS in path transition area
+				if in_water and not on_path_to_beach:
+					continue
+
+				# Sand band: 80px width for top and sides
+				var band_width = 80
+				var near_water1 = dist1 < 125 + band_width
+				var near_water2 = dist2 < 95 + band_width
+				var near_water3 = dist3 < 85 + band_width
+
+				# Draw if near water OR on path transition area
+				if near_water1 or near_water2 or near_water3 or on_path_to_beach:
+					draw_texture_rect(tex_lake_sand, Rect2(sx, sy, 32, 32), false)
 	else:
-		# Fallback: procedural rocks
-		var rock_color = Color(0.48, 0.45, 0.42)
-		draw_rect(Rect2(352, 208, 128, 112), rock_color)
+		# Fallback: procedural sand
+		var sand = Color(0.78, 0.70, 0.55)
+		draw_rect(Rect2(144, 80, 112, 144), sand)
+		draw_rect(Rect2(208, 208, 224, 112), sand)
+		draw_rect(Rect2(272, 0, 192, 64), sand)
+
+	# Rocky outcrop in bottom-right (near sewer) - solid organic formation
+	if tex_cliff_rock:
+		# Create solid rock formation using overlapping circles - no gaps
+		var rock_centers = [
+			{"pos": Vector2(430, 285), "radius": 50},   # Main cluster at sewer
+			{"pos": Vector2(465, 270), "radius": 35},   # Upper-right
+			{"pos": Vector2(450, 305), "radius": 30},   # Lower extension
+		]
+		for rx in range(368, 496, 16):
+			for ry in range(220, 336, 16):
+				var tile_center = Vector2(rx + 16, ry + 16)
+				var in_rocks = false
+				for cluster in rock_centers:
+					if cluster.pos.distance_to(tile_center) < cluster.radius:
+						in_rocks = true
+						break
+				# Solid - no noise filtering, just draw all tiles in the shape
+				if in_rocks:
+					draw_texture_rect(tex_cliff_rock, Rect2(rx, ry, 32, 32), false)
+	else:
+		# Fallback: use boulder sprites instead of circles
+		if tex_boulder:
+			var boulder_w = tex_boulder.get_width()
+			var boulder_h = tex_boulder.get_height()
+			# Main large boulder cluster
+			draw_texture_rect(tex_boulder, Rect2(430 - boulder_w, 285 - boulder_h, boulder_w * 2, boulder_h * 2), false)
+			draw_texture_rect(tex_boulder, Rect2(465 - boulder_w * 0.7, 270 - boulder_h * 0.7, boulder_w * 1.4, boulder_h * 1.4), false)
+			draw_texture_rect(tex_boulder, Rect2(450 - boulder_w * 0.6, 305 - boulder_h * 0.6, boulder_w * 1.2, boulder_h * 1.2), false)
 
 	# Note: Dock, rocks, trees, sewer drawn by Y-sorted entity system
 
 func draw_lakeside_area_overlay():
+	# Signal lights along escape path (after LED chain is built)
+	if cornfield_led_placed:
+		draw_escape_signal_lights_lakeside()
+
 	# Journal page sparkle
 	draw_area_journal_sparkles("lakeside")
 
 	# Exit sign (next to path at top, pointing up to farm)
-	draw_road_sign_vertical(270, 30, "Farm", true)
-
-	# Draw roaming animals
-	draw_roaming_animals_for_area("lakeside")
+	draw_road_sign_vertical(175, 30, "Farm", true)
 
 # Keep old function for compatibility
 func draw_lakeside_area():
 	draw_lakeside_area_background()
-	# Draw dock and rocks
+	# Draw dock and rocks using boulder sprites
 	draw_lakeside_dock()
-	draw_circle(Vector2(100, 260), 15, Color(0.5, 0.48, 0.45))
-	draw_circle(Vector2(300, 280), 20, Color(0.55, 0.5, 0.48))
-	draw_circle(Vector2(320, 270), 12, Color(0.5, 0.47, 0.43))
-	# Draw NPCs
-	for npc in lakeside_npcs:
-		draw_generic_npc(npc.pos, npc.name)
+	draw_rock_cluster(100, 260)
+	draw_rock_cluster(300, 280)
+	draw_rock_cluster(320, 270)
+	# Draw NPCs using new sprite system (stationary)
+	draw_fisher_bo(fisher_bo_npc_pos)
+	draw_old_mira(old_mira_npc_pos)
 	draw_lakeside_area_overlay()
 
 func draw_town_center_area_background():
-	# Beautiful town center with grass, cobblestone plaza, and decorations
-	
+	# Beautiful town center with grass, stone plaza, and decorations
+	var TILE = 16
+	var SCALE = 2  # 2x scale to match game zoom
+
 	# ALWAYS draw solid grass base first (prevents any gaps)
 	draw_rect(Rect2(0, 0, 480, 320), Color(0.32, 0.52, 0.30))
-	
+
 	# Draw grass tiles on top if available
 	if tex_grass_tile and tex_grass_tile_dark:
 		for x in range(0, 480, 32):
 			for y in range(0, 320, 32):
-				# Alternate between light and dark grass tiles for variety
 				var variation = int(fmod((x / 32 + y / 32), 2))
 				var tex = tex_grass_tile if variation == 0 else tex_grass_tile_dark
 				draw_texture_rect(tex, Rect2(x, y, 32, 32), false)
+
+	# Draw brick walkways using light_brick_tile and grey_brick_tile
+	var TILE_SIZE = 16  # Tile render size
+	var STEP = 8  # Tile spacing for clean brick pattern
+
+	# Main plaza area - light brick tiles
+	if tex_light_brick_tile:
+		for x in range(120, 360, STEP):
+			for y in range(100, 240, STEP):
+				draw_texture_rect(tex_light_brick_tile, Rect2(x, y, TILE_SIZE, TILE_SIZE), false)
+	elif tex_floor_tile:
+		for x in range(120, 360, STEP):
+			for y in range(100, 240, STEP):
+				draw_texture_rect(tex_floor_tile, Rect2(x, y, TILE_SIZE, TILE_SIZE), false)
+	else:
+		# Fallback procedural brick
+		var brick_base = Color(0.6, 0.35, 0.35)
+		draw_rect(Rect2(120, 100, 240, 140), brick_base)
+
+	# Road from left (to Farm) - grey brick tiles
+	if tex_grey_brick_tile:
+		for x in range(0, 120, STEP):
+			for y in range(135, 185, STEP):
+				draw_texture_rect(tex_grey_brick_tile, Rect2(x, y, TILE_SIZE, TILE_SIZE), false)
+	elif tex_floor_tile:
+		for x in range(0, 120, STEP):
+			for y in range(135, 185, STEP):
+				draw_texture_rect(tex_floor_tile, Rect2(x, y, TILE_SIZE, TILE_SIZE), false)
+	else:
+		var grey_base = Color(0.35, 0.32, 0.32)
+		draw_rect(Rect2(0, 135, 120, 50), grey_base)
 	
-	# Cobblestone plaza in center
-	var stone_base = Color(0.72, 0.68, 0.62)
-	var stone_dark = Color(0.58, 0.54, 0.48)
-	var stone_light = Color(0.82, 0.78, 0.72)
-	
-	# Main plaza area
-	draw_rect(Rect2(120, 100, 240, 140), stone_base)
-	
-	# Cobblestone pattern
-	for x in range(120, 360, 16):
-		for y in range(100, 240, 16):
-			var shade = fmod((x + y), 32)
-			var color = stone_dark if shade < 16 else stone_light
-			draw_rect(Rect2(x + 1, y + 1, 14, 14), color)
-			# Stone edges
-			draw_rect(Rect2(x, y, 16, 1), stone_dark)
-			draw_rect(Rect2(x, y, 1, 16), stone_dark)
-	
-	# Main road from left (to Farm)
-	draw_rect(Rect2(0, 135, 120, 50), stone_base)
-	for x in range(0, 120, 16):
-		for y in range(135, 185, 16):
-			var shade = fmod((x + y), 32)
-			draw_rect(Rect2(x + 1, y + 1, 14, 14), stone_dark if shade < 16 else stone_light)
-	
-	# Colorful festival bunting across the top
-	var bunting_colors = [Color(0.9, 0.3, 0.3), Color(0.3, 0.7, 0.9), Color(0.9, 0.8, 0.3), Color(0.5, 0.8, 0.4), Color(0.8, 0.5, 0.8)]
-	for i in range(24):
-		var bx = 20 + i * 20
-		var by = 95 + sin(i * 0.8) * 3
-		var color = bunting_colors[i % bunting_colors.size()]
-		# Triangle flag
-		var points = PackedVector2Array([
-			Vector2(bx, by),
-			Vector2(bx + 8, by),
-			Vector2(bx + 4, by + 12)
-		])
-		draw_colored_polygon(points, color)
-	# Bunting string
-	draw_line(Vector2(10, 95), Vector2(470, 95), Color(0.4, 0.3, 0.25), 2)
+	# Colorful festival bunting across the top using flag sprites
+	if tex_flags.size() > 0:
+		# Bunting string first (behind flags)
+		draw_line(Vector2(10, 95), Vector2(470, 95), Color(0.4, 0.3, 0.25), 2)
+		for i in range(24):
+			var bx = 15 + i * 19
+			var by = 88 + sin(i * 0.8) * 2
+			var flag_tex = tex_flags[i % tex_flags.size()]
+			# Draw first frame of flag animation (16x16 sprite)
+			var src = Rect2(0, 0, 16, 16)
+			var dest = Rect2(bx, by, 16, 16)
+			draw_texture_rect_region(flag_tex, dest, src)
+	else:
+		# Fallback procedural bunting
+		draw_line(Vector2(10, 95), Vector2(470, 95), Color(0.4, 0.3, 0.25), 2)
+		var bunting_colors = [Color(0.9, 0.3, 0.3), Color(0.3, 0.7, 0.9), Color(0.9, 0.8, 0.3), Color(0.5, 0.8, 0.4), Color(0.8, 0.5, 0.8)]
+		for i in range(24):
+			var bx = 20 + i * 20
+			var by = 95 + sin(i * 0.8) * 3
+			var color = bunting_colors[i % bunting_colors.size()]
+			var points = PackedVector2Array([Vector2(bx, by), Vector2(bx + 8, by), Vector2(bx + 4, by + 12)])
+			draw_colored_polygon(points, color)
 	
 	# Central fountain
 	draw_town_fountain()
@@ -5527,49 +9201,100 @@ func draw_town_center_area_background():
 	draw_barrel(115, 115)
 	draw_barrel(355, 115)
 	draw_barrel(115, 220)
-	draw_barrel(355, 220)
-	
-	# Market stall on the right side
-	draw_market_stall(380, 140)
-	
+
 	# Benches
 	draw_bench(140, 200)
 	draw_bench(320, 200)
-	
+
 	# Lamp posts
 	draw_lamp_post(130, 130)
 	draw_lamp_post(350, 130)
+	draw_lamp_post(420, 200)
+
+	# Trees on far right side
+	draw_oak_tree(410, 120)
+	draw_oak_tree(430, 260)
 
 func draw_town_fountain():
-	area_draw.draw_town_fountain(300, 180)
+	# Sprite-based fountain using fountain.png
+	var fx = 240
+	var fy = 160
+	if tex_fountain:
+		var tex_w = tex_fountain.get_width()
+		var tex_h = tex_fountain.get_height()
+		var scale = 0.60  # 2x scale for better visibility
+		var dest_w = tex_w * scale
+		var dest_h = tex_h * scale
+		var dest = Rect2(fx - dest_w / 2, fy - dest_h / 2 + 10, dest_w, dest_h)
+		draw_texture_rect(tex_fountain, dest, false)
+	else:
+		# Minimal fallback
+		draw_ellipse(Vector2(fx, fy + 16), Vector2(30, 10), Color(0.6, 0.58, 0.55))
+		draw_ellipse(Vector2(fx, fy + 6), Vector2(20, 7), Color(0.5, 0.7, 0.9, 0.5))
 
 func draw_flower_bed(x: float, y: float, count: int):
 	area_draw.draw_flower_bed(x, y, count)
 
 func draw_barrel(x: float, y: float):
-	area_draw.draw_barrel(x, y)
+	# Sprite-based barrel from TilesetHouse.png
+	if tex_house_tileset:
+		# Barrel sprite at position (496, 176) in tileset, 16x24 size
+		var src = Rect2(496, 176, 16, 24)
+		var dest = Rect2(x, y - 6, 16, 24)
+		draw_texture_rect_region(tex_house_tileset, dest, src)
+	else:
+		# Fallback shadow
+		draw_ellipse(Vector2(x + 8, y + 12), Vector2(8, 4), Color(0, 0, 0, 0.15))
 
 func draw_market_stall(x: float, y: float):
-	area_draw.draw_market_stall(x, y)
+	# Sprite-based market stall from TilesetHouse.png
+	if tex_house_tileset:
+		# Market stall with awning at position (384, 208) in tileset, 48x48 size
+		var src = Rect2(384, 208, 48, 48)
+		var dest = Rect2(x - 4, y - 12, 48, 48)
+		draw_texture_rect_region(tex_house_tileset, dest, src)
+	else:
+		# Minimal fallback
+		draw_rect(Rect2(x, y + 20, 40, 16), Color(0.6, 0.48, 0.38))
 
 func draw_bench(x: float, y: float):
-	area_draw.draw_bench(x, y)
+	# Sprite-based bench from TilesetHouse.png
+	if tex_house_tileset:
+		# Wooden bench at position (224, 304) in tileset, 32x16 size
+		var src = Rect2(224, 304, 32, 16)
+		var dest = Rect2(x, y + 4, 32, 16)
+		draw_texture_rect_region(tex_house_tileset, dest, src)
+	else:
+		# Minimal fallback
+		draw_rect(Rect2(x, y + 8, 30, 4), Color(0.55, 0.4, 0.3))
 
 func draw_lamp_post(x: float, y: float):
-	area_draw.draw_lamp_post(x, y)
+	# Sprite-based lamp post using street_lamp.png
+	if tex_street_lamp:
+		var tex_w = tex_street_lamp.get_width()
+		var tex_h = tex_street_lamp.get_height()
+		var scale = 0.35  # Scale to be realistic size compared to player
+		var dest_w = tex_w * scale
+		var dest_h = tex_h * scale
+		var dest = Rect2(x - dest_w / 2, y - dest_h + 8, dest_w, dest_h)
+		draw_texture_rect(tex_street_lamp, dest, false)
+	else:
+		# Minimal fallback with glow
+		draw_rect(Rect2(x + 2, y + 10, 6, 50), Color(0.25, 0.22, 0.2))
+		draw_circle(Vector2(x + 5, y - 5), 6, Color(1, 0.95, 0.7, 0.8))
 
 func draw_town_building_shop():
 	area_draw.draw_town_building_shop()
 
 func draw_town_building_hall():
-	area_draw.draw_town_building_hall()
+	area_draw.draw_town_building_hall(180, -20)
 
 func draw_town_building_bakery():
 	area_draw.draw_town_building_bakery()
 
 func draw_town_building_well():
-	# Well has custom position logic, keep some local drawing
-	area_draw.draw_well(350, 190)
+	# Well positioned at center bottom of town
+	area_draw.draw_well(210, 250)
 
 func draw_town_building_house1():
 	area_draw.draw_town_building_house1()
@@ -5584,31 +9309,57 @@ func draw_lakeside_dock():
 	area_draw.draw_lakeside_dock(180, 220)
 
 func draw_lakeside_dock_topdown(x: float, y: float):
-	# Top-down dock extending east into the lake
-	var wood = Color(0.55, 0.42, 0.32)
-	var wood_dark = Color(0.45, 0.35, 0.25)
-	var wood_light = Color(0.62, 0.50, 0.40)
-	# Main dock planks (horizontal, extending into water)
-	for i in range(10):
-		var plank_color = wood if i % 2 == 0 else wood_dark
-		draw_rect(Rect2(x + i * 7, y, 6, 35), plank_color)
-	# Side rails
-	draw_rect(Rect2(x, y - 2, 70, 3), wood_light)
-	draw_rect(Rect2(x, y + 34, 70, 3), wood_light)
-	# Support posts (at start and end)
-	draw_circle(Vector2(x + 5, y + 17), 4, wood_dark)
-	draw_circle(Vector2(x + 65, y + 17), 4, wood_dark)
+	# Draw a proper wooden pier extending into water
+	var wood_light = Color(0.62, 0.48, 0.35)
+	var wood_mid = Color(0.52, 0.40, 0.30)
+	var wood_dark = Color(0.42, 0.32, 0.22)
+	var wood_shadow = Color(0.32, 0.24, 0.18)
+	var post_color = Color(0.38, 0.28, 0.20)
+
+	var dock_width = 70
+	var dock_length = 85
+	var plank_height = 6
+
+	# Support posts going into water (draw first)
+	draw_rect(Rect2(x + 4, y + 20, 8, 35), post_color)
+	draw_rect(Rect2(x + 4, y + 50, 8, 30), wood_shadow)
+	draw_rect(Rect2(x + dock_width - 12, y + 20, 8, 35), post_color)
+	draw_rect(Rect2(x + dock_width - 12, y + 50, 8, 30), wood_shadow)
+	draw_rect(Rect2(x + dock_width/2 - 4, y + 35, 8, 25), post_color)
+	draw_rect(Rect2(x + dock_width/2 - 4, y + 55, 8, 25), wood_shadow)
+	draw_rect(Rect2(x + 4, y + dock_length - 15, 8, 20), post_color)
+	draw_rect(Rect2(x + dock_width - 12, y + dock_length - 15, 8, 20), post_color)
+
+	# Main deck planks
+	for i in range(12):
+		var plank_y = y + i * plank_height
+		var shade = wood_light if i % 3 == 0 else (wood_mid if i % 3 == 1 else wood_dark)
+		draw_rect(Rect2(x, plank_y, dock_width, plank_height - 1), shade)
+		draw_rect(Rect2(x, plank_y + plank_height - 2, dock_width, 1), wood_shadow)
+
+	# Side railings
+	draw_rect(Rect2(x - 2, y, 4, dock_length - 10), wood_dark)
+	draw_rect(Rect2(x + dock_width - 2, y, 4, dock_length - 10), wood_dark)
+	# Railing posts
+	draw_rect(Rect2(x - 3, y - 2, 6, 8), wood_mid)
+	draw_rect(Rect2(x + dock_width - 3, y - 2, 6, 8), wood_mid)
+	draw_rect(Rect2(x - 3, y + dock_length - 18, 6, 10), wood_mid)
+	draw_rect(Rect2(x + dock_width - 3, y + dock_length - 18, 6, 10), wood_mid)
 
 func draw_rock_cluster(x: float, y: float):
-	# Small cluster of rocks
-	var rock1 = Color(0.52, 0.48, 0.45)
-	var rock2 = Color(0.45, 0.42, 0.40)
-	var rock3 = Color(0.58, 0.55, 0.50)
-	draw_circle(Vector2(x, y), 12, rock1)
-	draw_circle(Vector2(x + 10, y - 5), 8, rock2)
-	draw_circle(Vector2(x - 5, y + 8), 6, rock3)
-	# Highlight
-	draw_circle(Vector2(x - 2, y - 3), 4, Color(0.65, 0.62, 0.58))
+	# Small cluster of rocks using boulder sprite
+	if tex_boulder:
+		var boulder_w = tex_boulder.get_width()
+		var boulder_h = tex_boulder.get_height()
+		# Main boulder
+		draw_texture_rect(tex_boulder, Rect2(x - boulder_w/2, y - boulder_h/2, boulder_w, boulder_h), false)
+		# Smaller boulder offset
+		var small_scale = 0.6
+		draw_texture_rect(tex_boulder, Rect2(x + 12 - boulder_w*small_scale/2, y - 8 - boulder_h*small_scale/2, boulder_w * small_scale, boulder_h * small_scale), false)
+	else:
+		# Fallback if boulder texture not loaded
+		var rock1 = Color(0.52, 0.48, 0.45)
+		draw_circle(Vector2(x, y), 12, rock1)
 
 func draw_cherry_blossom_tree(x: float, y: float):
 	area_draw.draw_cherry_blossom_tree(x, y)
@@ -5616,15 +9367,12 @@ func draw_cherry_blossom_tree(x: float, y: float):
 func draw_town_center_area_overlay():
 	# Journal page sparkle
 	draw_area_journal_sparkles("town_center")
-	
+
 	# Exit road sign (in grass below the road entrance)
 	draw_road_sign(5, 210, "<- Farm", false)
-	
-	# Draw roaming animals
-	draw_roaming_animals_for_area("town_center")
-	
-	# Tools and materials around town
-	# Tools removed
+
+	# Draw tumbleweeds blowing through town
+	draw_tumbleweeds()
 
 # Keep old function for compatibility
 func draw_town_center_area():
@@ -5636,9 +9384,13 @@ func draw_town_center_area():
 	draw_town_building_house1()
 	draw_town_building_well()
 	draw_town_building_house2()
-	# Draw NPCs
-	for npc in town_npcs:
-		draw_generic_npc(npc.pos, npc.name)
+	# Draw NPCs using new sprite system
+	# Elder Sato is stationary
+	draw_elder_sato(elder_sato_npc_pos)
+	# Child Mei roams energetically
+	draw_child_mei()
+	# Guard Tanaka patrols
+	draw_guard_tanaka()
 	draw_town_center_area_overlay()
 
 func draw_generic_npc(pos: Vector2, npc_name: String):
@@ -5678,9 +9430,34 @@ func draw_generic_npc(pos: Vector2, npc_name: String):
 	if tex:
 		var frame_size = 16
 		var frame = int(fmod(continuous_timer * 2 + pos.x * 0.1, 4))
-		var src = Rect2(frame * frame_size, 0, frame_size, frame_size)
+
+		# Determine facing direction row
+		# Check if this NPC is in dialogue (compare positions)
+		var row = 0  # Default: down
+		var flip_h = false
+		if in_dialogue and dialogue_npc_pos.distance_to(pos) < 5:
+			# This NPC is in dialogue - face the player
+			match dialogue_npc_facing:
+				"down": row = 0
+				"up": row = 1
+				"left": row = 2
+				"right":
+					row = 2  # Use left row, flip horizontally
+					flip_h = true
+
+		var src = Rect2(frame * frame_size, row * frame_size, frame_size, frame_size)
 		var scale = 1.4
-		var dest = Rect2(anim_pos.x - frame_size * scale / 2, anim_pos.y - frame_size * scale + 4, frame_size * scale, frame_size * scale)
+		var dest_w = frame_size * scale
+		var dest_h = frame_size * scale
+		var dest_x = anim_pos.x - dest_w / 2
+		var dest_y = anim_pos.y - dest_h + 4
+
+		var dest: Rect2
+		if flip_h:
+			# Flip horizontally by using negative width
+			dest = Rect2(dest_x + dest_w, dest_y, -dest_w, dest_h)
+		else:
+			dest = Rect2(dest_x, dest_y, dest_w, dest_h)
 		draw_texture_rect_region(tex, dest, src)
 
 func draw_stampede():
@@ -5754,7 +9531,7 @@ func draw_stampede():
 	
 	# Controls hint
 	draw_rect(Rect2(60, 295, 360, 22), Color(0, 0, 0, 0.6))
-	draw_string(ThemeDB.fallback_font, Vector2(70, 310), "[X]/Z=Jump  [_]/X=Punch  [O]/C=Dodge  Q/R2=Gadget", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.9, 0.9, 0.9))
+	draw_string(ThemeDB.fallback_font, Vector2(100, 310), "[X]/Z=Jump  [_]/X=Punch  Q/R2=Gadget", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.9, 0.9, 0.9))
 
 	# Show equipped gadget
 	if equipped_gadget != "":
@@ -5806,10 +9583,13 @@ func draw_stampede_player(pos: Vector2):
 						tex = tex_player_idle_south
 					flip_h = false
 			"jumping":
-				# Use mid-walk frame for jumping, facing correct direction
-				var walk_frames = tex_player_walk_east if stampede_player_facing_right else tex_player_walk_west
-				if walk_frames.size() > 2:
-					tex = walk_frames[2]
+				# Use running-jump animation for jumping - smooth, use early frames
+				var jump_frames = tex_player_jump_east if stampede_player_facing_right else tex_player_jump_west
+				if jump_frames.size() > 0:
+					# Use frame 1 or 2 for most of the jump (the nice airborne pose)
+					var jump_frame = 1 if stampede_player_y_vel < 0 else 2
+					jump_frame = clamp(jump_frame, 0, jump_frames.size() - 1)
+					tex = jump_frames[jump_frame]
 					flip_h = false
 				elif tex_player_walk_south.size() > 2:
 					tex = tex_player_walk_south[2]
@@ -5820,15 +9600,15 @@ func draw_stampede_player(pos: Vector2):
 					tex = walk_frames[frame]
 					flip_h = false
 			"attacking":
-				# Use attack animation frames with correct direction
+				# Use attack animation frames with correct direction - slower timing
 				var attack_frames = tex_player_attack_east if stampede_player_facing_right else tex_player_attack_west
 				if attack_frames.size() > 0:
-					var attack_frame = int((0.25 - stampede_player_state_timer) * 24) % attack_frames.size()
+					var attack_frame = int((0.4 - stampede_player_state_timer) * 15) % attack_frames.size()
 					attack_frame = clamp(attack_frame, 0, attack_frames.size() - 1)
 					tex = attack_frames[attack_frame]
 					flip_h = false
 				elif tex_player_attack_south.size() > 0:
-					var attack_frame = int((0.25 - stampede_player_state_timer) * 24) % tex_player_attack_south.size()
+					var attack_frame = int((0.4 - stampede_player_state_timer) * 15) % tex_player_attack_south.size()
 					attack_frame = clamp(attack_frame, 0, tex_player_attack_south.size() - 1)
 					tex = tex_player_attack_south[attack_frame]
 			"hit":
@@ -5854,14 +9634,6 @@ func draw_stampede_player(pos: Vector2):
 				dest.position.x = pos.x + w/2
 				dest.size.x = -w
 			draw_texture_rect(tex, dest, false, flash_mod)
-			
-			# Attack swing effect
-			if stampede_player_state == "attacking":
-				var swing_alpha = 0.8 if stampede_player_state_timer > 0.15 else 0.4
-				draw_arc(Vector2(pos.x - 40, pos.y - 15), 35, deg_to_rad(120), deg_to_rad(240), 12, Color(1, 0.9, 0.6, swing_alpha), 5)
-				draw_arc(Vector2(pos.x + 40, pos.y - 15), 35, deg_to_rad(-60), deg_to_rad(60), 12, Color(1, 0.9, 0.6, swing_alpha), 5)
-				if stampede_player_state_timer > 0.18:
-					draw_circle(Vector2(pos.x, pos.y - 20), 45, Color(1, 1, 0.7, 0.3))
 			return
 	
 	# Fallback to old system
@@ -5895,14 +9667,6 @@ func draw_stampede_player(pos: Vector2):
 	var sprite_size = 48 * scale_factor
 	var dest = Rect2(pos.x - sprite_size/2, pos.y - sprite_size + 10 + idle_bob, sprite_size, sprite_size)
 	draw_texture_rect_region(tex_player, dest, src, flash_mod)
-	
-	# Attack swing effect
-	if stampede_player_state == "attacking":
-		var swing_alpha = 0.8 if stampede_player_state_timer > 0.15 else 0.4
-		draw_arc(Vector2(pos.x - 40, pos.y - 15), 35, deg_to_rad(120), deg_to_rad(240), 12, Color(1, 0.9, 0.6, swing_alpha), 5)
-		draw_arc(Vector2(pos.x + 40, pos.y - 15), 35, deg_to_rad(-60), deg_to_rad(60), 12, Color(1, 0.9, 0.6, swing_alpha), 5)
-		if stampede_player_state_timer > 0.18:
-			draw_circle(Vector2(pos.x, pos.y - 20), 45, Color(1, 1, 0.7, 0.3))
 
 func draw_stampede_animal_new(animal: Dictionary, offset: Vector2):
 	var pos = animal.pos + offset
@@ -5993,7 +9757,22 @@ func draw_stampede_animal_new(animal: Dictionary, offset: Vector2):
 				draw_animal_hp_bar(pos, animal)
 		
 		"robot":
-			# Small patrol robot
+			# Use heavy robot walking animation if loaded
+			if heavy_robot_anim_loaded and tex_heavy_robot_walk_east.size() > 0:
+				# Robot moves east (right)
+				var frame = int(continuous_timer * 6) % tex_heavy_robot_walk_east.size()
+				var tex = tex_heavy_robot_walk_east[frame]
+				if tex:
+					var w = tex.get_width()
+					var h = tex.get_height()
+					var scale = 2.5
+					var dest = Rect2(pos.x - (w * scale)/2, pos.y - (h * scale) + 8, w * scale, h * scale)
+					draw_texture_rect(tex, dest, false, tint)
+					if not is_defeated:
+						draw_animal_hp_bar(pos, animal)
+					return
+
+			# Fallback: Small patrol robot (procedural)
 			var metal = Color(0.5 * tint.r, 0.55 * tint.g, 0.6 * tint.b)
 			var dark_metal = Color(0.3 * tint.r, 0.35 * tint.g, 0.4 * tint.b)
 			var eye_color = Color(1.0, 0.2, 0.1) if not is_defeated else Color(0.3, 0.1, 0.1)
@@ -6017,12 +9796,27 @@ func draw_stampede_animal_new(animal: Dictionary, offset: Vector2):
 				draw_animal_hp_bar(pos, animal)
 
 		"heavy_robot":
-			# Heavy enforcer robot
+			# Use heavy robot walking animation if loaded (larger scale)
+			if heavy_robot_anim_loaded and tex_heavy_robot_walk_east.size() > 0:
+				# Heavy robot moves east (right)
+				var frame = int(continuous_timer * 5) % tex_heavy_robot_walk_east.size()
+				var tex = tex_heavy_robot_walk_east[frame]
+				if tex:
+					var w = tex.get_width()
+					var h = tex.get_height()
+					var scale = 4.0  # Larger than regular robot
+					var dest = Rect2(pos.x - (w * scale)/2, pos.y - (h * scale) + 12, w * scale, h * scale)
+					draw_texture_rect(tex, dest, false, tint)
+					if not is_defeated:
+						draw_animal_hp_bar(pos, animal)
+					return
+
+			# Fallback: Heavy enforcer robot (procedural)
 			var metal = Color(0.4 * tint.r, 0.4 * tint.g, 0.45 * tint.b)
 			var dark_metal = Color(0.25 * tint.r, 0.25 * tint.g, 0.3 * tint.b)
 			var accent = Color(0.6 * tint.r, 0.15 * tint.g, 0.1 * tint.b)
 			var eye_color = Color(1.0, 0.1, 0.3) if not is_defeated else Color(0.3, 0.05, 0.1)
-			
+
 			# Body - larger
 			draw_rect(Rect2(pos.x - 24, pos.y - 38, 48, 35), dark_metal)
 			draw_rect(Rect2(pos.x - 22, pos.y - 36, 44, 31), metal)
@@ -6296,63 +10090,131 @@ func draw_kaido(pos: Vector2):
 func draw_farmer_wen(pos: Vector2):
 	# Shadow
 	draw_ellipse_shape(Vector2(pos.x, pos.y + 5), Vector2(14, 5), Color(0, 0, 0, 0.3))
-	
-	# Use custom Farmer Wen sprite if available
+
+	# Use new animation system if available
+	if farmer_wen_anim_loaded:
+		var tex: Texture2D = null
+		var frame = farmer_wen_anim_frame % 6
+		var is_walking = farmer_wen_walking_in or farmer_wen_leaving
+
+		if is_walking:
+			# Get walk frame based on direction
+			match farmer_wen_facing:
+				"south":
+					if tex_farmer_wen_walk_south.size() > frame:
+						tex = tex_farmer_wen_walk_south[frame]
+				"north":
+					if tex_farmer_wen_walk_north.size() > frame:
+						tex = tex_farmer_wen_walk_north[frame]
+				"west":
+					if tex_farmer_wen_walk_west.size() > frame:
+						tex = tex_farmer_wen_walk_west[frame]
+				"east":
+					if tex_farmer_wen_walk_east.size() > frame:
+						tex = tex_farmer_wen_walk_east[frame]
+		else:
+			# Get idle sprite based on direction
+			match farmer_wen_facing:
+				"south": tex = tex_farmer_wen_idle_south
+				"north": tex = tex_farmer_wen_idle_north
+				"west": tex = tex_farmer_wen_idle_west
+				"east": tex = tex_farmer_wen_idle_east
+
+		# Fallback to first walk frame if idle not loaded
+		if not tex:
+			if tex_farmer_wen_walk_south.size() > 0:
+				tex = tex_farmer_wen_walk_south[0]
+
+		if tex:
+			var scale = 1.04  # 4% bigger
+			var w = tex.get_width() * scale
+			var h = tex.get_height() * scale
+			# Idle bob when not walking
+			var idle_bob = 0.0
+			if not is_walking:
+				idle_bob = sin(continuous_timer * 1.2) * 0.5
+			var dest = Rect2(pos.x - w/2, pos.y - h + 8 + idle_bob, w, h)
+			draw_texture_rect(tex, dest, false)
+			return
+
+	# Fallback to old static sprite
 	if tex_farmer_wen:
-		var w = tex_farmer_wen.get_width()
-		var h = tex_farmer_wen.get_height()
+		var scale = 1.04  # 4% bigger
+		var w = tex_farmer_wen.get_width() * scale
+		var h = tex_farmer_wen.get_height() * scale
 		var dest = Rect2(pos.x - w/2, pos.y - h + 8, w, h)
 		draw_texture_rect(tex_farmer_wen, dest, false)
 	elif tex_ninja_villager:
 		var src = Rect2(0, 0, 16, 16)
-		var dest = Rect2(pos.x - 12, pos.y - 28, 24, 24)
+		var dest = Rect2(pos.x - 12, pos.y - 29, 25, 25)  # 2% bigger
 		draw_texture_rect_region(tex_ninja_villager, dest, src)
 
 func draw_tractor(x: float, y: float):
-	# Simple tractor shape with outlines
-	var body = Color(0.9, 0.35, 0.28)
-	var wheel = Color(0.25, 0.25, 0.28)
-	var outline = Color(0.0, 0.0, 0.0)
-	
-	# Body outline
-	draw_rect(Rect2(x - 1, y - 16, 37, 22), outline)
-	draw_rect(Rect2(x + 29, y - 26, 17, 17), outline)
-	
-	# Body
-	draw_rect(Rect2(x, y - 15, 35, 20), body)
-	draw_rect(Rect2(x + 30, y - 25, 15, 15), body)
-	
-	# Wheels with outline
-	draw_circle(Vector2(x + 8, y + 8), 11, outline)
-	draw_circle(Vector2(x + 8, y + 8), 10, wheel)
-	draw_circle(Vector2(x + 8, y + 8), 4, Color(0.4, 0.4, 0.42))
-	
-	draw_circle(Vector2(x + 35, y + 5), 8, outline)
-	draw_circle(Vector2(x + 35, y + 5), 7, wheel)
-	draw_circle(Vector2(x + 35, y + 5), 3, Color(0.4, 0.4, 0.42))
-	
-	# Exhaust with outline
-	draw_rect(Rect2(x + 37, y - 31, 6, 12), outline)
-	draw_rect(Rect2(x + 38, y - 30, 4, 10), Color(0.3, 0.3, 0.32))
+	# Use tractor sprite if available
+	if tex_farmer_wen_tractor:
+		var scale = 1.3  # 30% bigger
+		var w = tex_farmer_wen_tractor.get_width() * scale
+		var h = tex_farmer_wen_tractor.get_height() * scale
+		var dest = Rect2(x - w/2, y - h + 10, w, h)
+		draw_texture_rect(tex_farmer_wen_tractor, dest, false)
+
+func draw_nightfall_shadows():
+	# Real shadow system - darkness with light sources punching through
+	var shadow_color = Color(0.02, 0.02, 0.08)  # Very dark blue-black
+	var cell_size = 8  # Size of each shadow cell for performance
+
+	# Collect all light sources with their positions, radii, and colors
+	var light_sources: Array = []
+
+	# Player flashlight (only visible when flashlight is equipped and on)
+	var player_screen_pos = (player_pos - camera_offset) * GAME_ZOOM
+	if flashlight_on and equipped_gadget == "led_lamp":
+		light_sources.append({
+			"pos": player_screen_pos,
+			"inner_radius": 50.0,
+			"outer_radius": 100.0,
+			"color": Color(1.0, 0.95, 0.8),
+			"intensity": 1.0
+		})
+
+	# Draw shadow grid - each cell checks distance to all lights
+	for y in range(0, SCREEN_HEIGHT, cell_size):
+		for x in range(0, SCREEN_WIDTH, cell_size):
+			var cell_center = Vector2(x + cell_size/2, y + cell_size/2)
+			var shadow_alpha = nightfall_alpha  # Base darkness
+
+			# Check each light source
+			for light in light_sources:
+				var dist = cell_center.distance_to(light.pos)
+				if dist < light.outer_radius:
+					# Calculate light contribution with smooth falloff
+					var light_factor: float
+					if dist < light.inner_radius:
+						light_factor = 1.0  # Full light in inner radius
+					else:
+						# Smooth falloff between inner and outer radius
+						var t = (dist - light.inner_radius) / (light.outer_radius - light.inner_radius)
+						light_factor = 1.0 - (t * t)  # Quadratic falloff for softer edges
+
+					# Reduce shadow based on light intensity
+					shadow_alpha -= light_factor * light.intensity * nightfall_alpha
+
+			# Clamp and draw shadow cell
+			shadow_alpha = clamp(shadow_alpha, 0.0, nightfall_alpha)
+			if shadow_alpha > 0.02:
+				draw_rect(Rect2(x, y, cell_size, cell_size), Color(shadow_color.r, shadow_color.g, shadow_color.b, shadow_alpha))
+
+	# Draw light glows on top (additive-style)
+	for light in light_sources:
+		if light.intensity > 0.3:
+			# Outer glow
+			draw_circle(light.pos, light.outer_radius * 0.3, Color(light.color.r, light.color.g, light.color.b, 0.1 * light.intensity))
+			# Inner glow
+			draw_circle(light.pos, light.inner_radius * 0.5, Color(light.color.r, light.color.g, light.color.b, 0.15 * light.intensity))
 
 func draw_lit_buildings():
-	# Draw glowing lights on buildings during nightfall
-	if "radiotower" in lit_buildings:
-		var glow = (sin(anim_timer * 2) * 0.2 + 0.8)
-		draw_circle(Vector2(55, 15), 15, Color(1.0, 0.9, 0.3, glow * 0.3))
-	
-	if "barn" in lit_buildings:
-		draw_circle(Vector2(150, 180), 10, Color(1.0, 0.8, 0.3, 0.4))
-	
-	if "mill" in lit_buildings:
-		draw_circle(Vector2(420, 100), 10, Color(1.0, 0.8, 0.3, 0.4))
-	
-	# Path of lights to tunnel
-	for i in range(5):
-		var lx = 300 + i * 25
-		var ly = 200 + i * 15
-		var flicker = (sin(anim_timer * 3 + i) * 0.2 + 0.8)
-		draw_circle(Vector2(lx, ly), 5, Color(0.3, 0.9, 0.4, flicker * 0.6))
+	# Legacy function - now handled by draw_nightfall_shadows()
+	pass
 
 func draw_ui():
 	# Help Meter (top-left battery)
@@ -6390,7 +10252,11 @@ func draw_ui():
 	
 	if in_dialogue and not current_dialogue.is_empty():
 		draw_dialogue_box()
-	
+
+	# Dialogue selection menu (when talking to NPC with dialogue tree)
+	if dialogue_menu_active:
+		draw_dialogue_menu()
+
 	# Component popup overlay
 	if showing_component_popup:
 		draw_component_popup()
@@ -6411,20 +10277,16 @@ func draw_farm_prompts():
 		draw_prompt("Help")
 	elif quest_stage >= 10 and player_pos.distance_to(radiotower_pos) < 50:
 		draw_prompt("Climb")
-	elif player_pos.distance_to(tunnel_pos) < 40:
-		if is_nightfall:
-			draw_prompt("Enter Sewers")
-		else:
-			draw_prompt("Sewers (Locked)")
 	# Kid NPC
 	elif kid_visible and not kid_walking_in and player_pos.distance_to(kid_pos) < 35:
 		draw_prompt("Talk")
 	# Optional side circuits
 	elif not side_circuits_done.chicken_coop and player_pos.distance_to(chicken_coop_interact_pos) < 30:
 		draw_prompt("Examine Coop")
-	# Journal pages
+	# Journal pages (farm area only)
 	else:
-		for page_name in journal_page_locations:
+		var farm_pages = ["radiotower", "buried"]
+		for page_name in farm_pages:
 			if page_name not in journal_pages_found:
 				var page_pos = journal_page_locations[page_name]
 				if player_pos.distance_to(page_pos) < 30:
@@ -6432,11 +10294,19 @@ func draw_farm_prompts():
 					break
 
 func draw_cornfield_prompts():
-	# NPC prompts
-	for npc in cornfield_npcs:
-		if player_pos.distance_to(npc.pos) < 35:
-			draw_prompt("Talk")
-			return
+	# NPC prompts (using dynamic positions for roaming NPCs)
+	if player_pos.distance_to(farmer_mae_pos) < 35:
+		draw_prompt("Talk")
+		return
+	if player_pos.distance_to(old_chen_npc_pos) < 35:
+		draw_prompt("Talk")
+		return
+	if player_pos.distance_to(young_taro_pos) < 35:
+		draw_prompt("Talk")
+		return
+	if player_pos.distance_to(farmer_wen_npc_pos) < 35:
+		draw_prompt("Talk")
+		return
 	# LED Chain placement
 	if quest_stage == 12 and not cornfield_led_placed:
 		var led_spot = Vector2(240, 150)
@@ -6451,11 +10321,20 @@ func draw_cornfield_prompts():
 			return
 
 func draw_lakeside_prompts():
-	# NPC prompts
-	for npc in lakeside_npcs:
-		if player_pos.distance_to(npc.pos) < 35:
-			draw_prompt("Talk")
-			return
+	# NPC prompts (stationary NPCs)
+	if player_pos.distance_to(fisher_bo_npc_pos) < 35:
+		draw_prompt("Talk")
+		return
+	if player_pos.distance_to(old_mira_npc_pos) < 35:
+		draw_prompt("Talk")
+		return
+	# Sewer entrance (bottom right corner - escape route)
+	if player_pos.distance_to(tunnel_pos) < 40:
+		if is_nightfall:
+			draw_prompt("Enter Sewers")
+		else:
+			draw_prompt("Sewers (Locked)")
+		return
 	# Secret
 	if not lakeside_secret_found and player_pos.distance_to(Vector2(310, 275)) < 30:
 		draw_prompt("Search")
@@ -6478,11 +10357,20 @@ func draw_town_prompts():
 	if player_pos.distance_to(bakery_door_pos) < 30:
 		draw_prompt("Enter Bakery")
 		return
-	# NPC prompts
-	for npc in town_npcs:
-		if player_pos.distance_to(npc.pos) < 35:
-			draw_prompt("Talk")
-			return
+	# NPC prompts (using dynamic positions for roaming NPCs)
+	if player_pos.distance_to(elder_sato_npc_pos) < 35:
+		draw_prompt("Talk")
+		return
+	if player_pos.distance_to(child_mei_pos) < 35:
+		draw_prompt("Talk")
+		return
+	if player_pos.distance_to(guard_tanaka_pos) < 35:
+		draw_prompt("Talk")
+		return
+	# Milo in town center
+	if (milo_in_town or milo_returned_to_town) and player_pos.distance_to(milo_town_pos) < 35:
+		draw_prompt("Talk")
+		return
 	# Well circuit (now lower in grass)
 	if not side_circuits_done.well_pump and player_pos.distance_to(well_pos) < 35:
 		draw_prompt("Examine Well")
@@ -6513,27 +10401,8 @@ func draw_awareness_bar():
 	ui_draw.draw_awareness_bar()
 
 func draw_hiding_spots():
-	# Show hiding spot indicators when patrol is active
-	for spot in hiding_spots:
-		var dist = player_pos.distance_to(spot)
-		
-		# Only show nearby spots
-		if dist < 80:
-			var alpha = 1.0 - (dist / 80.0)
-			alpha *= 0.6
-			
-			# Bush/cover indicator
-			draw_circle(spot, 18, Color(0.2, 0.4, 0.25, alpha * 0.5))
-			draw_circle(spot, 12, Color(0.3, 0.55, 0.35, alpha * 0.7))
-			
-			# Can hide here prompt - show within hiding range
-			if dist < 40:
-				var pulse = sin(continuous_timer * 3) * 0.2 + 0.8
-				if is_hiding:
-					draw_string(ThemeDB.fallback_font, Vector2(spot.x - 20, spot.y + 25), "HIDING", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.3, 0.9, 0.4, pulse))
-				else:
-					# Show "SAFE" if near a spot even without pressing hide
-					draw_string(ThemeDB.fallback_font, Vector2(spot.x - 15, spot.y + 25), "SAFE", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5, 0.8, 0.6, pulse))
+	# Invisible safe zone - player learns to hide behind shed naturally
+	pass
 
 func draw_gadget_mini_icon(gadget_id: String, x: float, y: float, icon_color: Color):
 	ui_draw.draw_gadget_mini_icon(gadget_id, x, y, icon_color)
@@ -6671,15 +10540,23 @@ func draw_speaker_portrait(speaker: String, box_y: float):
 	match speaker:
 		"kaido":
 			if tex_kaido_portrait:
-				# Portrait version - fit in box maintaining aspect
+				# Use the dedicated drawn portrait
 				draw_texture_rect(tex_kaido_portrait, Rect2(22, box_y + 12, 56, 56), false)
 			elif tex_kaido:
-				# Use main sprite as portrait
-				var pw = 36
-				var ph = 58
-				draw_texture_rect(tex_kaido, Rect2(32, box_y + 8, pw, ph), false)
+				# Fallback: crop upper portion of main sprite
+				var w = tex_kaido.get_width()
+				var h = tex_kaido.get_height()
+				var src = Rect2(0, 0, w, h * 0.35)
+				draw_texture_rect_region(tex_kaido, Rect2(22, box_y + 12, 56, 56), src)
 		"grandmother":
-			if tex_ninja_oldwoman:
+			# Try animated grandmother sprite first (idle south facing)
+			if tex_grandmother_idle_south:
+				var w = tex_grandmother_idle_south.get_width()
+				var h = tex_grandmother_idle_south.get_height()
+				# Crop to upper 55% for head portrait
+				var src = Rect2(0, 0, w, h * 0.55)
+				draw_texture_rect_region(tex_grandmother_idle_south, Rect2(22, box_y + 12, 56, 56), src)
+			elif tex_ninja_oldwoman:
 				var src = Rect2(0, 0, 16, 16)
 				draw_texture_rect_region(tex_ninja_oldwoman, Rect2(22, box_y + 12, 56, 56), src)
 			elif tex_grandmother_portrait:
@@ -6716,11 +10593,23 @@ func draw_speaker_portrait(speaker: String, box_y: float):
 			# Quill/pen mark
 			draw_line(Vector2(60, box_y + 22), Vector2(65, box_y + 58), Color(0.3, 0.25, 0.2), 2)
 		"robot":
-			# Check for baker robot portrait
-			if tex_baker_robot_portrait and current_dialogue_npc == "Baker Bot-7":
-				draw_texture_rect(tex_baker_robot_portrait, Rect2(20, box_y + 10, 60, 60), false)
-			else:
-				# Enemy robot portrait
+			# Check for specific robot NPCs with proper portraits
+			var robot_portrait_drawn = false
+			if current_dialogue_npc == "Baker Bot-7":
+				if tex_baker_bot_south:
+					var src = Rect2(0, 0, tex_baker_bot_south.get_width(), tex_baker_bot_south.get_height() * 0.6)
+					draw_texture_rect_region(tex_baker_bot_south, Rect2(20, box_y + 10, 60, 60), src)
+					robot_portrait_drawn = true
+				elif tex_baker_robot_portrait:
+					draw_texture_rect(tex_baker_robot_portrait, Rect2(20, box_y + 10, 60, 60), false)
+					robot_portrait_drawn = true
+			elif current_dialogue_npc == "Shopkeeper Bot-3000":
+				if tex_shopkeeper_bot_south:
+					var src = Rect2(0, 0, tex_shopkeeper_bot_south.get_width(), tex_shopkeeper_bot_south.get_height() * 0.6)
+					draw_texture_rect_region(tex_shopkeeper_bot_south, Rect2(20, box_y + 10, 60, 60), src)
+					robot_portrait_drawn = true
+			if not robot_portrait_drawn:
+				# Enemy robot portrait fallback
 				draw_rect(Rect2(28, box_y + 18, 44, 44), Color(0.2, 0.1, 0.1))
 				draw_rect(Rect2(30, box_y + 20, 40, 40), Color(0.35, 0.18, 0.18))
 				# Visor
@@ -6744,11 +10633,65 @@ func draw_speaker_portrait(speaker: String, box_y: float):
 			var sparkle = (sin(continuous_timer * 4) * 0.3 + 0.7)
 			draw_circle(Vector2(58, box_y + 30), 3, Color(1, 0.9, 0.6, sparkle))
 		"villager":
-			# Check for Elder Sato portrait
-			if tex_villager_elder_portrait and current_dialogue_npc == "Elder Sato":
-				draw_texture_rect(tex_villager_elder_portrait, Rect2(20, box_y + 10, 60, 60), false)
-			else:
-				# Generic villager portrait
+			# Draw portrait based on current_dialogue_npc
+			var portrait_drawn = false
+			match current_dialogue_npc:
+				"Elder Sato":
+					if tex_elder_sato_south:
+						var src = Rect2(0, 0, tex_elder_sato_south.get_width(), tex_elder_sato_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_elder_sato_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Child Mei":
+					if tex_child_mei_south:
+						var src = Rect2(0, 0, tex_child_mei_south.get_width(), tex_child_mei_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_child_mei_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Guard Tanaka":
+					if tex_guard_tanaka_south:
+						var src = Rect2(0, 0, tex_guard_tanaka_south.get_width(), tex_guard_tanaka_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_guard_tanaka_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Fisher Bo":
+					if tex_fisher_bo_south:
+						var src = Rect2(0, 0, tex_fisher_bo_south.get_width(), tex_fisher_bo_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_fisher_bo_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Old Mira":
+					if tex_old_mira_south:
+						var src = Rect2(0, 0, tex_old_mira_south.get_width(), tex_old_mira_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_old_mira_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Farmer Mae":
+					if tex_farmer_mae_south:
+						var src = Rect2(0, 0, tex_farmer_mae_south.get_width(), tex_farmer_mae_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_farmer_mae_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Old Chen":
+					if tex_old_chen_south:
+						var src = Rect2(0, 0, tex_old_chen_south.get_width(), tex_old_chen_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_old_chen_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Young Taro":
+					if tex_young_taro_south:
+						var src = Rect2(0, 0, tex_young_taro_south.get_width(), tex_young_taro_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_young_taro_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Farmer Wen":
+					if tex_farmer_wen_portrait:
+						draw_texture_rect(tex_farmer_wen_portrait, Rect2(20, box_y + 10, 60, 60), false)
+						portrait_drawn = true
+					elif tex_farmer_wen_idle_south:
+						var src = Rect2(0, 0, tex_farmer_wen_idle_south.get_width(), tex_farmer_wen_idle_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_farmer_wen_idle_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+				"Mayor Hiroshi":
+					if tex_mayor_hiroshi_south:
+						var src = Rect2(0, 0, tex_mayor_hiroshi_south.get_width(), tex_mayor_hiroshi_south.get_height() * 0.6)
+						draw_texture_rect_region(tex_mayor_hiroshi_south, Rect2(20, box_y + 10, 60, 60), src)
+						portrait_drawn = true
+
+			if not portrait_drawn:
+				# Generic villager portrait fallback
 				draw_rect(Rect2(28, box_y + 18, 44, 44), Color(0.4, 0.5, 0.45))
 				# Head
 				draw_circle(Vector2(50, box_y + 32), 14, Color(0.95, 0.85, 0.75))
@@ -6761,6 +10704,64 @@ func draw_speaker_portrait(speaker: String, box_y: float):
 				draw_rect(Rect2(40, box_y + 18, 20, 8), Color(0.35, 0.28, 0.22))
 
 # ============================================
+# DIALOGUE MENU (Topic Selection)
+# ============================================
+
+func draw_dialogue_menu():
+	# Draw a menu showing available dialogue topics for the current NPC
+	var box_w = 260
+	var box_h = 30 + min(dialogue_menu_options.size(), 4) * 28 + 35
+	var box_x = (480 - box_w) / 2
+	var box_y = 200
+
+	# Background with border
+	draw_rect(Rect2(box_x, box_y, box_w, box_h), Color(0.12, 0.12, 0.15, 0.95))
+	draw_rect(Rect2(box_x, box_y, box_w, box_h), Color(0.4, 0.7, 0.85, 0.8), false, 2)
+
+	# Header - NPC name
+	draw_rect(Rect2(box_x, box_y, box_w, 24), Color(0.2, 0.4, 0.5, 0.9))
+	var header_text = "Talk to " + dialogue_menu_npc
+	var header_x = box_x + (box_w - header_text.length() * 7) / 2
+	draw_string(ThemeDB.fallback_font, Vector2(header_x, box_y + 17), header_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.95, 0.95, 1.0))
+
+	# Scrollable topic list (show up to 4 at a time)
+	var visible_start = dialogue_menu_scroll
+	var visible_end = min(visible_start + 4, dialogue_menu_options.size())
+	var list_y = box_y + 30
+
+	for i in range(visible_start, visible_end):
+		var topic = dialogue_menu_options[i]
+		var item_y = list_y + (i - visible_start) * 28
+		var is_selected = (i == dialogue_menu_selected)
+
+		# Selection highlight
+		if is_selected:
+			draw_rect(Rect2(box_x + 8, item_y, box_w - 16, 24), Color(0.3, 0.6, 0.7, 0.6))
+			# Selection indicator arrow
+			draw_string(ThemeDB.fallback_font, Vector2(box_x + 14, item_y + 17), ">", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.95, 0.95, 0.4))
+
+		# Topic text
+		var text_color = Color(1.0, 1.0, 1.0) if is_selected else Color(0.75, 0.75, 0.8)
+		var topic_text = topic.get("topic", "...")
+		draw_string(ThemeDB.fallback_font, Vector2(box_x + 28, item_y + 17), topic_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, text_color)
+
+	# Scroll indicators if needed
+	if dialogue_menu_scroll > 0:
+		# Up arrow
+		draw_string(ThemeDB.fallback_font, Vector2(box_x + box_w / 2 - 5, box_y + 28), "^", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.7, 0.8))
+	if visible_end < dialogue_menu_options.size():
+		# Down arrow
+		var arrow_y = list_y + 4 * 28 - 8
+		draw_string(ThemeDB.fallback_font, Vector2(box_x + box_w / 2 - 5, arrow_y), "v", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.7, 0.8))
+
+	# Control hints at bottom
+	var hint_y = box_y + box_h - 18
+	draw_rect(Rect2(box_x, hint_y - 8, box_w, 22), Color(0.1, 0.1, 0.12, 0.8))
+	var hint_text = "[D-Pad] Navigate  [X] Select  [O] Back"
+	var hint_x = box_x + (box_w - hint_text.length() * 5) / 2
+	draw_string(ThemeDB.fallback_font, Vector2(hint_x, hint_y + 6), hint_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.6, 0.65, 0.7))
+
+# ============================================
 # SCHEMATIC POPUP
 # ============================================
 
@@ -6770,35 +10771,140 @@ func draw_speaker_portrait(speaker: String, box_y: float):
 # ============================================
 
 func handle_pause_menu_input(event):
-	# Navigation
-	if event.is_action_pressed("move_up") or event.is_action_pressed("ui_up"):
-		pause_menu_selection = max(0, pause_menu_selection - 1)
-		haptic_light()
-	if event.is_action_pressed("move_down") or event.is_action_pressed("ui_down"):
-		pause_menu_selection = min(pause_menu_options.size() - 1, pause_menu_selection + 1)
-		haptic_light()
-	
+	# If component panel is active, handle its input instead
+	if component_panel_active:
+		handle_component_panel_input(event)
+		return
+
+	# Navigation with cooldown for joystick (prevents scrolling too fast)
+	var nav_up = false
+	var nav_down = false
+
+	# Check for joystick axis movement (with cooldown)
+	if event is InputEventJoypadMotion:
+		if event.axis == JOY_AXIS_LEFT_Y:
+			if pause_menu_nav_cooldown <= 0:
+				if event.axis_value < -0.5:
+					nav_up = true
+					pause_menu_nav_cooldown = 0.25  # 250ms cooldown
+				elif event.axis_value > 0.5:
+					nav_down = true
+					pause_menu_nav_cooldown = 0.25
+	# D-pad and keyboard - no cooldown needed (uses is_action_pressed which handles repeat)
+	elif event.is_action_pressed("ui_up"):
+		nav_up = true
+	elif event.is_action_pressed("ui_down"):
+		nav_down = true
+
+	if nav_up:
+		if pause_menu_selection > 0:
+			pause_menu_selection -= 1
+			haptic_light()
+	if nav_down:
+		if pause_menu_selection < pause_menu_options.size() - 1:
+			pause_menu_selection += 1
+			haptic_light()
+
 	# Selection
 	var select_pressed = event.is_action_pressed("interact") or event.is_action_pressed("ui_accept")
 	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_A:
 		select_pressed = true
-	
+
 	if select_pressed:
 		haptic_medium()
 		match pause_menu_selection:
 			0:  # Resume
 				current_mode = pause_previous_mode
-			1:  # Journal
+			1:  # Map
+				map_previous_mode = pause_previous_mode  # Return to game, not pause menu
+				current_mode = GameMode.MAP_VIEW
+			2:  # Components
+				component_panel_active = true
+				component_selected = 0
+				component_info_scroll = 0
+			3:  # Journal
 				current_mode = GameMode.JOURNAL_VIEW
-			2:  # Settings (placeholder for now)
-				pass
-			3:  # Quit
+			4:  # Quit
 				get_tree().quit()
 
+func handle_component_panel_input(event):
+	# Navigation with cooldown for joystick
+	var nav_up = false
+	var nav_down = false
+	var nav_left = false
+	var nav_right = false
+
+	# Check for joystick axis movement (with cooldown)
+	if event is InputEventJoypadMotion:
+		if component_nav_cooldown <= 0:
+			if event.axis == JOY_AXIS_LEFT_Y:
+				if event.axis_value < -0.5:
+					nav_up = true
+					component_nav_cooldown = 0.18
+				elif event.axis_value > 0.5:
+					nav_down = true
+					component_nav_cooldown = 0.18
+			elif event.axis == JOY_AXIS_LEFT_X:
+				if event.axis_value < -0.5:
+					nav_left = true
+					component_nav_cooldown = 0.18
+				elif event.axis_value > 0.5:
+					nav_right = true
+					component_nav_cooldown = 0.18
+
+	# D-pad and keyboard
+	if event.is_action_pressed("ui_up"):
+		nav_up = true
+	elif event.is_action_pressed("ui_down"):
+		nav_down = true
+	elif event.is_action_pressed("ui_left"):
+		nav_left = true
+	elif event.is_action_pressed("ui_right"):
+		nav_right = true
+
+	# Left/Right switches between components
+	if nav_left:
+		if component_selected > 0:
+			component_selected -= 1
+			component_info_scroll = 0  # Reset scroll when changing component
+			haptic_light()
+	if nav_right:
+		if component_selected < component_data.size() - 1:
+			component_selected += 1
+			component_info_scroll = 0
+			haptic_light()
+
+	# Up/Down scrolls through the info text
+	var current_component = component_data[component_selected]
+	var max_scroll = max(0, current_component.info.size() - 6)  # Show 6 lines at a time
+
+	if nav_up:
+		if component_info_scroll > 0:
+			component_info_scroll -= 1
+			haptic_light()
+	if nav_down:
+		if component_info_scroll < max_scroll:
+			component_info_scroll += 1
+			haptic_light()
+
+	# Back button (O or B) closes component panel
+	var back_pressed = event.is_action_pressed("cancel") or event.is_action_pressed("ui_cancel")
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_B:
+		back_pressed = true
+
+	if back_pressed:
+		component_panel_active = false
+		haptic_light()
+
 func draw_pause_menu():
+	# If component panel is active, draw it instead
+	if component_panel_active:
+		draw_component_panel()
+		return
+
 	# Update Kaido bob animation
 	pause_kaido_bob = sin(continuous_timer * 2.0) * 3.0
-	
+
 	# Dim overlay
 	draw_rect(Rect2(0, 0, 480, 320), Color(0, 0, 0, 0.6))
 	
@@ -6840,11 +10946,11 @@ func draw_pause_menu():
 	
 	# === MENU OPTIONS AS TOOLS ===
 	var menu_x = bench_x + 30
-	var menu_y = bench_y + 30
-	
+	var menu_y = bench_y + 25
+
 	for i in range(pause_menu_options.size()):
 		var option = pause_menu_options[i]
-		var item_y = menu_y + i * 38
+		var item_y = menu_y + i * 32
 		var is_selected = i == pause_menu_selection
 		
 		# Draw tool icon based on option
@@ -6856,8 +10962,8 @@ func draw_pause_menu():
 		
 		if is_selected:
 			# Glowing selection indicator
-			draw_rect(Rect2(menu_x + 40, item_y + 2, 100, 22), Color(0.3, 0.7, 0.6, 0.3))
-			draw_rect(Rect2(menu_x + 40, item_y + 2, 100, 22), Color(0.4, 0.9, 0.8), false, 2)
+			draw_rect(Rect2(menu_x + 40, item_y + 2, 100, 20), Color(0.3, 0.7, 0.6, 0.3))
+			draw_rect(Rect2(menu_x + 40, item_y + 2, 100, 20), Color(0.4, 0.9, 0.8), false, 2)
 		
 		draw_string(ThemeDB.fallback_font, Vector2(menu_x + 45, item_y + 18), option, HORIZONTAL_ALIGNMENT_LEFT, -1, label_size, label_color)
 	
@@ -6868,6 +10974,216 @@ func draw_pause_menu():
 	
 	# === BUTTON HINTS ===
 	draw_string(ThemeDB.fallback_font, Vector2(90, 300), "[X] Select    [O] Resume    [START] Resume", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.6, 0.55, 0.5))
+
+func draw_component_panel():
+	# Full-screen component encyclopedia panel
+
+	# Dark background
+	draw_rect(Rect2(0, 0, 480, 320), Color(0.08, 0.08, 0.12, 0.98))
+
+	# === HEADER ===
+	draw_rect(Rect2(0, 0, 480, 40), Color(0.15, 0.2, 0.25))
+	draw_rect(Rect2(0, 38, 480, 2), Color(0.3, 0.6, 0.5))
+	draw_string(ThemeDB.fallback_font, Vector2(160, 26), "COMPONENT GUIDE", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.9, 0.95, 0.9))
+
+	# === COMPONENT TABS (horizontal list at top) ===
+	var tab_y = 50
+	var tab_start_x = 20
+	var current_component = component_data[component_selected]
+
+	# Draw component name tabs - show 5 at a time centered on selection
+	var visible_start = max(0, component_selected - 2)
+	var visible_end = min(visible_start + 5, component_data.size())
+	if visible_end - visible_start < 5 and visible_start > 0:
+		visible_start = max(0, visible_end - 5)
+
+	var tab_x = tab_start_x
+	for i in range(visible_start, visible_end):
+		var comp = component_data[i]
+		var is_selected = (i == component_selected)
+		var tab_w = 85
+
+		# Tab background
+		if is_selected:
+			draw_rect(Rect2(tab_x, tab_y, tab_w, 24), Color(0.2, 0.5, 0.45, 0.9))
+			draw_rect(Rect2(tab_x, tab_y, tab_w, 24), Color(0.4, 0.9, 0.8), false, 2)
+		else:
+			draw_rect(Rect2(tab_x, tab_y, tab_w, 24), Color(0.15, 0.15, 0.2, 0.7))
+
+		# Tab text
+		var text_color = Color(1.0, 1.0, 1.0) if is_selected else Color(0.5, 0.5, 0.55)
+		var font_size = 10 if comp.name.length() > 10 else 11
+		draw_string(ThemeDB.fallback_font, Vector2(tab_x + 5, tab_y + 16), comp.name, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
+		tab_x += tab_w + 5
+
+	# Arrow indicators if more components exist
+	if visible_start > 0:
+		draw_string(ThemeDB.fallback_font, Vector2(8, tab_y + 16), "<", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.6, 0.8, 0.7))
+	if visible_end < component_data.size():
+		draw_string(ThemeDB.fallback_font, Vector2(465, tab_y + 16), ">", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.6, 0.8, 0.7))
+
+	# === COMPONENT DISPLAY AREA ===
+	var content_y = 85
+
+	# Component icon/visual (left side)
+	var icon_x = 30
+	var icon_y = content_y + 20
+	draw_component_icon(icon_x, icon_y, component_selected)
+
+	# Component name and full name
+	draw_string(ThemeDB.fallback_font, Vector2(120, content_y + 15), current_component.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1.0, 1.0, 1.0))
+	draw_string(ThemeDB.fallback_font, Vector2(120, content_y + 32), current_component.full_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.6, 0.7, 0.65))
+
+	# Divider line
+	draw_line(Vector2(20, content_y + 45), Vector2(460, content_y + 45), Color(0.3, 0.4, 0.35, 0.5), 1)
+
+	# === INFO TEXT (scrollable) ===
+	var text_y = content_y + 60
+	var line_height = 18
+	var max_visible_lines = 6
+
+	var info_lines = current_component.info
+	var visible_lines_start = component_info_scroll
+	var visible_lines_end = min(visible_lines_start + max_visible_lines, info_lines.size())
+
+	for i in range(visible_lines_start, visible_lines_end):
+		var line = info_lines[i]
+		var line_y = text_y + (i - visible_lines_start) * line_height
+		var line_color = Color(0.85, 0.88, 0.85) if line != "" else Color(0.5, 0.5, 0.5)
+		draw_string(ThemeDB.fallback_font, Vector2(30, line_y), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, line_color)
+
+	# Scroll indicators
+	var max_scroll = max(0, info_lines.size() - max_visible_lines)
+	if component_info_scroll > 0:
+		draw_string(ThemeDB.fallback_font, Vector2(450, text_y - 5), "^", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.8, 0.7))
+	if component_info_scroll < max_scroll:
+		draw_string(ThemeDB.fallback_font, Vector2(450, text_y + max_visible_lines * line_height - 10), "v", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.8, 0.7))
+
+	# Scroll bar
+	if max_scroll > 0:
+		var scroll_track_y = text_y
+		var scroll_track_h = max_visible_lines * line_height - 15
+		draw_rect(Rect2(460, scroll_track_y, 4, scroll_track_h), Color(0.2, 0.2, 0.25))
+		var scroll_pos = (float(component_info_scroll) / max_scroll) * (scroll_track_h - 20)
+		draw_rect(Rect2(460, scroll_track_y + scroll_pos, 4, 20), Color(0.4, 0.7, 0.6))
+
+	# === BUTTON HINTS ===
+	draw_rect(Rect2(0, 290, 480, 30), Color(0.1, 0.1, 0.12))
+	draw_string(ThemeDB.fallback_font, Vector2(30, 308), "[<][>] Component    [^][v] Scroll    [O] Back", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.5, 0.55, 0.5))
+
+	# Component counter
+	var counter_text = str(component_selected + 1) + "/" + str(component_data.size())
+	draw_string(ThemeDB.fallback_font, Vector2(420, 308), counter_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.5, 0.6, 0.55))
+
+func draw_component_icon(x: float, y: float, index: int):
+	# Draw a visual representation of each component
+	var comp = component_data[index]
+	var base_color = comp.color
+
+	match comp.name:
+		"LED":
+			# LED dome shape
+			draw_circle(Vector2(x + 25, y + 20), 18, base_color)
+			draw_circle(Vector2(x + 25, y + 20), 12, Color(base_color.r + 0.3, base_color.g + 0.3, base_color.b + 0.3))
+			# Legs
+			draw_rect(Rect2(x + 18, y + 38, 3, 20), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 28, y + 38, 3, 25), Color(0.7, 0.7, 0.7))
+			# + and - labels
+			draw_string(ThemeDB.fallback_font, Vector2(x + 28, y + 68), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.5, 0.5, 0.5))
+		"Resistor":
+			# Resistor body
+			draw_rect(Rect2(x + 5, y + 25, 45, 12), base_color)
+			# Color bands
+			draw_rect(Rect2(x + 12, y + 25, 5, 12), Color(0.6, 0.3, 0.1))
+			draw_rect(Rect2(x + 22, y + 25, 5, 12), Color(0.1, 0.1, 0.1))
+			draw_rect(Rect2(x + 32, y + 25, 5, 12), Color(0.9, 0.1, 0.1))
+			draw_rect(Rect2(x + 42, y + 25, 3, 12), Color(0.85, 0.75, 0.4))
+			# Leads
+			draw_line(Vector2(x, y + 31), Vector2(x + 5, y + 31), Color(0.7, 0.7, 0.7), 2)
+			draw_line(Vector2(x + 50, y + 31), Vector2(x + 60, y + 31), Color(0.7, 0.7, 0.7), 2)
+		"Buzzer":
+			# Buzzer cylinder
+			draw_circle(Vector2(x + 30, y + 30), 22, base_color)
+			draw_circle(Vector2(x + 30, y + 30), 18, Color(0.15, 0.15, 0.15))
+			draw_circle(Vector2(x + 30, y + 30), 8, Color(0.3, 0.3, 0.3))
+			# + marking
+			draw_string(ThemeDB.fallback_font, Vector2(x + 40, y + 20), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.6, 0.6, 0.6))
+		"Push Button":
+			# Button housing
+			draw_rect(Rect2(x + 10, y + 20, 35, 25), Color(0.2, 0.2, 0.25))
+			# Button cap
+			draw_rect(Rect2(x + 18, y + 15, 20, 12), base_color)
+			draw_rect(Rect2(x + 20, y + 17, 16, 8), Color(base_color.r + 0.2, base_color.g + 0.2, base_color.b + 0.2))
+			# Pins
+			for pin in [12, 22, 32, 42]:
+				draw_rect(Rect2(x + pin, y + 45, 2, 10), Color(0.7, 0.7, 0.7))
+		"Slide Switch":
+			# Switch body
+			draw_rect(Rect2(x + 5, y + 25, 50, 15), Color(0.25, 0.25, 0.3))
+			# Slider track
+			draw_rect(Rect2(x + 10, y + 28, 40, 8), Color(0.15, 0.15, 0.18))
+			# Slider knob
+			draw_rect(Rect2(x + 35, y + 26, 12, 12), base_color)
+			# Pins
+			draw_rect(Rect2(x + 15, y + 40, 2, 12), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 28, y + 40, 2, 12), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 41, y + 40, 2, 12), Color(0.7, 0.7, 0.7))
+		"Potentiometer":
+			# Pot body (circular)
+			draw_circle(Vector2(x + 30, y + 30), 22, Color(0.2, 0.25, 0.3))
+			# Knob
+			draw_circle(Vector2(x + 30, y + 30), 12, base_color)
+			# Indicator line on knob
+			draw_line(Vector2(x + 30, y + 20), Vector2(x + 30, y + 30), Color(0.9, 0.9, 0.9), 2)
+			# Pins
+			draw_rect(Rect2(x + 18, y + 52, 2, 10), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 29, y + 52, 2, 10), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 40, y + 52, 2, 10), Color(0.7, 0.7, 0.7))
+		"Photoresistor":
+			# Sensor head
+			draw_circle(Vector2(x + 30, y + 25), 16, Color(0.8, 0.6, 0.4))
+			# Squiggly pattern
+			draw_line(Vector2(x + 20, y + 22), Vector2(x + 25, y + 28), base_color, 2)
+			draw_line(Vector2(x + 25, y + 28), Vector2(x + 30, y + 22), base_color, 2)
+			draw_line(Vector2(x + 30, y + 22), Vector2(x + 35, y + 28), base_color, 2)
+			draw_line(Vector2(x + 35, y + 28), Vector2(x + 40, y + 22), base_color, 2)
+			# Legs
+			draw_rect(Rect2(x + 22, y + 41, 2, 15), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 36, y + 41, 2, 15), Color(0.7, 0.7, 0.7))
+		"Diode":
+			# Diode body
+			draw_rect(Rect2(x + 15, y + 28, 30, 10), base_color)
+			# Stripe (cathode marking)
+			draw_rect(Rect2(x + 38, y + 28, 5, 10), Color(0.7, 0.7, 0.7))
+			# Leads
+			draw_line(Vector2(x + 5, y + 33), Vector2(x + 15, y + 33), Color(0.7, 0.7, 0.7), 2)
+			draw_line(Vector2(x + 45, y + 33), Vector2(x + 55, y + 33), Color(0.7, 0.7, 0.7), 2)
+			# Arrow symbol
+			draw_line(Vector2(x + 25, y + 50), Vector2(x + 35, y + 50), Color(0.5, 0.5, 0.5), 1)
+			draw_line(Vector2(x + 32, y + 47), Vector2(x + 35, y + 50), Color(0.5, 0.5, 0.5), 1)
+			draw_line(Vector2(x + 32, y + 53), Vector2(x + 35, y + 50), Color(0.5, 0.5, 0.5), 1)
+		"Jumper Wires":
+			# Multiple colored wires
+			draw_line(Vector2(x + 5, y + 20), Vector2(x + 55, y + 25), Color(0.9, 0.2, 0.2), 3)
+			draw_line(Vector2(x + 5, y + 35), Vector2(x + 55, y + 30), Color(0.1, 0.1, 0.1), 3)
+			draw_line(Vector2(x + 5, y + 50), Vector2(x + 55, y + 45), Color(0.2, 0.6, 0.2), 3)
+			# Pin ends
+			draw_rect(Rect2(x + 2, y + 18, 6, 6), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 52, y + 23, 6, 6), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 2, y + 33, 6, 6), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 52, y + 28, 6, 6), Color(0.7, 0.7, 0.7))
+		"Breadboard":
+			# Board outline
+			draw_rect(Rect2(x + 5, y + 15, 55, 40), base_color)
+			draw_rect(Rect2(x + 5, y + 15, 55, 40), Color(0.6, 0.6, 0.55), false, 1)
+			# Power rails (red/blue stripes)
+			draw_rect(Rect2(x + 8, y + 18, 49, 3), Color(0.9, 0.3, 0.3))
+			draw_rect(Rect2(x + 8, y + 49, 49, 3), Color(0.3, 0.3, 0.9))
+			# Hole grid
+			for row in range(3):
+				for col in range(8):
+					draw_circle(Vector2(x + 12 + col * 6, y + 28 + row * 6), 1.5, Color(0.3, 0.3, 0.3))
 
 func draw_bench_components(bench_x: float, bench_y: float):
 	# Scattered LEDs
@@ -6901,7 +11217,7 @@ func draw_bench_components(bench_x: float, bench_y: float):
 func draw_menu_tool(x: float, y: float, tool_idx: int, is_selected: bool):
 	var glow = 0.3 if is_selected else 0.0
 	var bob = sin(continuous_timer * 3.0 + tool_idx) * 2.0 if is_selected else 0.0
-	
+
 	match tool_idx:
 		0:  # Resume - Soldering iron
 			var tip_glow = sin(continuous_timer * 4.0) * 0.3 + 0.7 if is_selected else 0.3
@@ -6914,8 +11230,31 @@ func draw_menu_tool(x: float, y: float, tool_idx: int, is_selected: bool):
 			draw_rect(Rect2(x + 35 + bob, y + 9, 6, 2), Color(1.0, 0.5 + tip_glow * 0.3, 0.2, 0.8 + tip_glow * 0.2))
 			if is_selected:
 				draw_circle(Vector2(x + 40 + bob, y + 10), 4, Color(1.0, 0.6, 0.2, 0.3))
-		
-		1:  # Journal - Notebook
+
+		1:  # Map - Compass/Map
+			# Map background
+			draw_rect(Rect2(x + 2 + bob, y + 2, 28, 20), Color(0.85, 0.8, 0.7))
+			draw_rect(Rect2(x + 2 + bob, y + 2, 28, 20), Color(0.6, 0.5, 0.4), false, 1)
+			# Map lines (paths)
+			draw_line(Vector2(x + 6 + bob, y + 8), Vector2(x + 14 + bob, y + 14), Color(0.5, 0.4, 0.3), 1)
+			draw_line(Vector2(x + 14 + bob, y + 14), Vector2(x + 26 + bob, y + 10), Color(0.5, 0.4, 0.3), 1)
+			# Location marker
+			if is_selected:
+				draw_circle(Vector2(x + 14 + bob, y + 14), 3, Color(0.9, 0.3, 0.3))
+				draw_circle(Vector2(x + 14 + bob, y + 14), 2, Color(1.0, 0.5, 0.5))
+
+		2:  # Components - LED icon
+			# LED dome
+			draw_circle(Vector2(x + 16 + bob, y + 8), 6, Color(1.0, 0.3, 0.3))
+			draw_circle(Vector2(x + 16 + bob, y + 8), 4, Color(1.0, 0.6, 0.6))
+			# LED legs
+			draw_rect(Rect2(x + 13 + bob, y + 14, 2, 8), Color(0.7, 0.7, 0.7))
+			draw_rect(Rect2(x + 17 + bob, y + 14, 2, 10), Color(0.7, 0.7, 0.7))
+			# Glow effect when selected
+			if is_selected:
+				draw_circle(Vector2(x + 16 + bob, y + 8), 10, Color(1.0, 0.4, 0.4, 0.3))
+
+		3:  # Journal - Notebook
 			# Cover
 			draw_rect(Rect2(x + 2 + bob, y + 2, 28, 20), Color(0.6, 0.45, 0.3))
 			draw_rect(Rect2(x + 4 + bob, y + 4, 24, 16), Color(0.7, 0.55, 0.4))
@@ -6927,19 +11266,8 @@ func draw_menu_tool(x: float, y: float, tool_idx: int, is_selected: bool):
 			# Bookmark
 			if is_selected:
 				draw_rect(Rect2(x + 26 + bob, y, 3, 8), Color(0.9, 0.3, 0.3))
-		
-		2:  # Settings - Multimeter
-			# Body
-			draw_rect(Rect2(x + 4 + bob, y + 2, 24, 20), Color(0.2, 0.2, 0.25))
-			draw_rect(Rect2(x + 6 + bob, y + 4, 20, 10), Color(0.15, 0.4, 0.15))  # Screen
-			# Display text
-			if is_selected:
-				draw_string(ThemeDB.fallback_font, Vector2(x + 8 + bob, y + 12), "5.0V", HORIZONTAL_ALIGNMENT_LEFT, -1, 6, Color(0.3, 1.0, 0.3))
-			# Dial
-			draw_circle(Vector2(x + 16 + bob, y + 18), 4, Color(0.5, 0.5, 0.55))
-			draw_circle(Vector2(x + 16 + bob, y + 18), 2, Color(0.3, 0.3, 0.35))
-		
-		3:  # Quit - Door/Exit
+
+		4:  # Quit - Door/Exit
 			# Door frame
 			draw_rect(Rect2(x + 6 + bob, y + 2, 22, 20), Color(0.5, 0.38, 0.28))
 			draw_rect(Rect2(x + 8 + bob, y + 4, 18, 16), Color(0.6, 0.45, 0.35))
@@ -6996,6 +11324,88 @@ func draw_kaido_on_bench(x: float, y: float):
 func draw_schematic_popup():
 	ui_draw.draw_schematic_popup()
 
+func draw_build_screen_overlay():
+	"""Draw the BUILD_SCREEN overlay with schematic preview and button prompts."""
+	# Semi-transparent overlay panel at bottom of screen
+	var panel_h = 80
+	var panel_y = SCREEN_HEIGHT - panel_h
+	draw_rect(Rect2(0, panel_y, SCREEN_WIDTH, panel_h), Color(0.1, 0.1, 0.15, 0.9))
+	draw_rect(Rect2(0, panel_y, SCREEN_WIDTH, 2), Color(0.4, 0.6, 0.8))  # Top border
+
+	# Small schematic preview on left
+	var preview_x = 10
+	var preview_y = panel_y + 8
+	var preview_w = 100
+	var preview_h = 60
+
+	# Draw mini schematic background
+	draw_rect(Rect2(preview_x, preview_y, preview_w, preview_h), Color(0.95, 0.95, 0.92))
+	draw_rect(Rect2(preview_x, preview_y, preview_w, preview_h), Color(0.5, 0.5, 0.5), false, 1)
+
+	# Draw mini schematic (scaled down version)
+	var tex: Texture2D = null
+	match current_schematic:
+		"led_lamp", "led_basic": tex = tex_schematic_led_basic
+		"buzzer_alarm", "buzzer_button": tex = tex_schematic_buzzer_button
+		"dimmer": tex = tex_schematic_dimmer
+		"light_sensor": tex = tex_schematic_light_sensor
+		"led_chain", "series_leds": tex = tex_schematic_series_leds
+	if tex:
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		draw_texture_rect(tex, Rect2(preview_x + 2, preview_y + 2, preview_w - 4, preview_h - 4), false)
+		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+
+	# Status text in center
+	var status_x = preview_x + preview_w + 20
+	var status_y = panel_y + 15
+
+	# Title
+	draw_string(get_theme_default_font(), Vector2(status_x, status_y), "BUILD MODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 1.0))
+
+	# Instructions
+	status_y += 20
+	if detection_connected:
+		draw_string(get_theme_default_font(), Vector2(status_x, status_y), "Build the circuit on your breadboard.", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.7, 0.8))
+	else:
+		draw_string(get_theme_default_font(), Vector2(status_x, status_y), "(Demo mode - no camera detected)", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6, 0.6, 0.6))
+
+	# Attempt counter (if any attempts made)
+	if build_attempt_count > 0:
+		status_y += 16
+		var attempt_text = "Attempts: " + str(build_attempt_count)
+		draw_string(get_theme_default_font(), Vector2(status_x, status_y), attempt_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.8, 0.7, 0.5))
+
+	# Button prompt on right side
+	var btn_x = SCREEN_WIDTH - 150
+	var btn_y = panel_y + 20
+
+	# Draw button icon (PlayStation Triangle or keyboard key)
+	if build_check_cooldown > 0:
+		# Cooldown active - show grayed out
+		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.3, 0.3, 0.35))
+		draw_string(get_theme_default_font(), Vector2(btn_x + 6, btn_y + 17), "Y", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.5))
+		draw_string(get_theme_default_font(), Vector2(btn_x + 32, btn_y + 17), "Checking...", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.5))
+	elif detection_pending:
+		# Detection in progress
+		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.3, 0.5, 0.6))
+		draw_string(get_theme_default_font(), Vector2(btn_x + 6, btn_y + 17), "Y", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.8, 0.8, 0.8))
+		draw_string(get_theme_default_font(), Vector2(btn_x + 32, btn_y + 17), "Scanning...", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.9, 1.0))
+	else:
+		# Ready to check
+		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.2, 0.5, 0.3))
+		# Triangle shape for PS controller
+		var tri_center = Vector2(btn_x + 12, btn_y + 14)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(tri_center.x, tri_center.y - 8),
+			Vector2(tri_center.x - 7, tri_center.y + 5),
+			Vector2(tri_center.x + 7, tri_center.y + 5)
+		]), Color(0.7, 1.0, 0.7))
+		draw_string(get_theme_default_font(), Vector2(btn_x + 32, btn_y + 17), "Check Circuit", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 1.0, 0.9))
+
+	# Secondary button hints
+	btn_y += 30
+	draw_string(get_theme_default_font(), Vector2(btn_x, btn_y + 10), "(or press T on keyboard)", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5, 0.5, 0.6))
+
 func draw_breadboard_schematic(x: float, y: float, circuit: String):
 	var tex: Texture2D = null
 	match circuit:
@@ -7004,13 +11414,26 @@ func draw_breadboard_schematic(x: float, y: float, circuit: String):
 		"dimmer": tex = tex_schematic_dimmer
 		"light_sensor": tex = tex_schematic_light_sensor
 		"led_chain", "series_leds": tex = tex_schematic_series_leds
-	
+		"well_indicator", "button_indicator": tex = tex_schematic_button_indicator
+		"tractor_switch": tex = tex_schematic_tractor_switch
+		"or_gate", "diode_or_gate", "or_gate_coop": tex = tex_schematic_or_gate
+
 	if tex:
 		var tex_size = tex.get_size()
-		var scale_factor = min(220.0 / tex_size.x, 165.0 / tex_size.y)
+		# Scale to fit in larger popup while maintaining aspect ratio
+		# Popup is now 400x290, schematic area is roughly 360x155
+		var max_w = 360.0
+		var max_h = 155.0
+		var scale_factor = min(max_w / tex_size.x, max_h / tex_size.y)
 		var w = tex_size.x * scale_factor
 		var h = tex_size.y * scale_factor
-		draw_texture_rect(tex, Rect2(x, y, w, h), false)
+		# Center the schematic horizontally in the available space
+		var centered_x = x + (max_w - w) / 2.0
+		# Use linear filtering for smooth high-res schematics
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		draw_texture_rect(tex, Rect2(centered_x, y, w, h), false)
+		# Reset to nearest for pixel art
+		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	else:
 		# Fallback: draw procedural schematic
 		draw_procedural_schematic(x, y, circuit)
@@ -7133,7 +11556,11 @@ func draw_backpack_gadgets_tab(popup_y: float, alpha: float):
 		
 		if i < gadgets.size():
 			draw_gadget_icon(sx, sy, slot_size, gadgets[i], alpha)
-	
+			# Show "EQUIPPED" badge if this gadget is currently equipped
+			if gadgets[i] == equipped_gadget:
+				draw_rect(Rect2(sx + 2, sy + slot_size - 12, 41, 10), Color(0.2, 0.5, 0.4, alpha * 0.9))
+				draw_string(ThemeDB.fallback_font, Vector2(sx + 5, sy + slot_size - 3), "EQUIPPED", HORIZONTAL_ALIGNMENT_LEFT, -1, 7, Color(0.5, 1.0, 0.8, alpha))
+
 	# Selected gadget info panel on the right
 	var info_x = 270
 	var info_y = popup_y + 45
@@ -7233,8 +11660,55 @@ func get_loot_info(item: String) -> Dictionary:
 				"name": "Grandfather's Journal",
 				"desc": "Torn pages from CARACTACUS's journal. Contains memories of the resistance."
 			}
+		"boxing_ticket":
+			return {
+				"name": "Boxing Match Ticket",
+				"desc": "A ticket to a boxing match in New Sumida City. Farmer Wen's nephew fights there.",
+				"type": "ticket",
+				"color": Color(0.9, 0.75, 0.3)
+			}
 		_:
 			return {"name": item, "desc": "Unknown item."}
+
+func draw_backpack_map_tab(popup_y: float, alpha: float):
+	# Show a preview of the world map with "Press X to view" prompt
+	var map_x: float = 90.0
+	var map_y: float = popup_y + 45.0
+	var map_w: float = 300.0
+	var map_h: float = 170.0
+
+	# Map preview background (parchment)
+	draw_rect(Rect2(map_x, map_y, map_w, map_h), Color(0.85, 0.75, 0.6, alpha))
+
+	if tex_world_map:
+		# Calculate scaled dimensions to fit in the preview area
+		var tex_w: float = float(tex_world_map.get_width())
+		var tex_h: float = float(tex_world_map.get_height())
+		var scale_factor: float = min((map_w - 10.0) / tex_w, (map_h - 10.0) / tex_h)
+		var draw_w: float = tex_w * scale_factor
+		var draw_h: float = tex_h * scale_factor
+		var draw_x: float = map_x + (map_w - draw_w) / 2.0
+		var draw_y: float = map_y + (map_h - draw_h) / 2.0
+
+		# Map border frame
+		draw_rect(Rect2(draw_x - 2, draw_y - 2, draw_w + 4, draw_h + 4), Color(0.4, 0.3, 0.2, alpha))
+
+		# Draw the map texture (no color modulation to ensure it shows)
+		draw_texture_rect(tex_world_map, Rect2(draw_x, draw_y, draw_w, draw_h), false)
+
+		# Current location marker (pulsing) - Agricommune position
+		var pulse: float = sin(continuous_timer * 4.0) * 0.3 + 0.7
+		var marker_x: float = draw_x + draw_w * 0.5
+		var marker_y: float = draw_y + draw_h * 0.65
+		draw_circle(Vector2(marker_x, marker_y), 6, Color(1.0, 0.3, 0.3, pulse * alpha))
+		draw_circle(Vector2(marker_x, marker_y), 3, Color(1.0, 1.0, 1.0, pulse * alpha))
+	else:
+		# Fallback message if texture not loaded
+		draw_string(ThemeDB.fallback_font, Vector2(map_x + 80, map_y + 85), "Map not available", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.4, 0.3, 0.2, alpha))
+
+	# Action prompt button
+	draw_rect(Rect2(map_x + 60, popup_y + 220, 180, 28), Color(0.2, 0.5, 0.45, alpha))
+	draw_string(ThemeDB.fallback_font, Vector2(map_x + 80, popup_y + 240), "[X] View Full Map", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 0.85, alpha))
 
 func draw_loot_icon(sx: float, sy: float, size: float, item: String, alpha: float):
 	ui_draw.draw_loot_icon(sx, sy, size, item, alpha)
@@ -7264,7 +11738,7 @@ func draw_journal_view():
 		draw_string(ThemeDB.fallback_font, Vector2(150, 150), "No pages found yet...", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.5, 0.45, 0.4))
 	else:
 		# Build all content
-		var page_order = ["shed", "pond", "tree", "radiotower", "buried"]
+		var page_order = ["town_center", "cornfield", "lakeside", "radiotower", "buried"]
 		var page_content = get_journal_page_content()
 		
 		# Calculate total content height needed
@@ -7308,7 +11782,7 @@ func draw_journal_view():
 		# Signature at end
 		var sig_y = content_top - journal_scroll + total_height + 10
 		if sig_y > content_top and sig_y < content_bottom:
-			draw_string(ThemeDB.fallback_font, Vector2(280, sig_y), "Ã¢â‚¬â€ CARACTACUS", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.4, 0.35, 0.3))
+			draw_string(ThemeDB.fallback_font, Vector2(280, sig_y), "- CARACTACUS", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.4, 0.35, 0.3))
 		
 		# Scroll indicator
 		if max_scroll > 0:
@@ -7400,6 +11874,69 @@ func draw_stamina_bar(pos: Vector2):
 func draw_region_complete():
 	interior_sc.draw_region_complete()
 
+func draw_feedback_screen():
+	# Dark background with fade-in
+	draw_rect(Rect2(0, 0, 480, 320), Color(0.08, 0.08, 0.12, feedback_fade_alpha))
+
+	if feedback_fade_alpha < 0.1:
+		return  # Don't draw content until fade starts
+
+	var content_alpha = min(feedback_fade_alpha, 1.0)
+	var text_color = Color(1, 1, 1, content_alpha)
+	var accent_color = Color(0.5, 0.95, 0.88, content_alpha)  # Teal accent
+	var star_color = Color(1.0, 0.85, 0.3, content_alpha)  # Gold stars
+
+	# Title: THANKS FOR PLAYING!
+	var title = "THANKS FOR PLAYING!"
+	var title_w = title.length() * 12
+	draw_string(ThemeDB.fallback_font, Vector2((480 - title_w) / 2, 50), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, accent_color)
+
+	# Subtitle
+	var subtitle = "Help us make KaidoTrainer amazing"
+	var subtitle_w = subtitle.length() * 7
+	draw_string(ThemeDB.fallback_font, Vector2((480 - subtitle_w) / 2, 80), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, text_color)
+
+	# QR Code (centered, 128x128)
+	var qr_size = 128
+	var qr_x = (480 - qr_size) / 2
+	var qr_y = 100
+
+	if tex_qr_code:
+		var qr_w = tex_qr_code.get_width()
+		var qr_h = tex_qr_code.get_height()
+		var scale = float(qr_size) / max(qr_w, qr_h)
+		var draw_w = qr_w * scale
+		var draw_h = qr_h * scale
+		draw_texture_rect(tex_qr_code, Rect2(qr_x + (qr_size - draw_w) / 2, qr_y, draw_w, draw_h), false, Color(1, 1, 1, content_alpha))
+	else:
+		# Placeholder box if QR code not loaded
+		draw_rect(Rect2(qr_x, qr_y, qr_size, qr_size), Color(0.3, 0.3, 0.3, content_alpha))
+		var placeholder = "QR CODE"
+		draw_string(ThemeDB.fallback_font, Vector2(qr_x + 30, qr_y + 70), placeholder, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, text_color)
+
+	# Survey URL text below QR
+	var url_text = "kaidotrainer.com/feedback"
+	var url_w = url_text.length() * 7
+	draw_string(ThemeDB.fallback_font, Vector2((480 - url_w) / 2, qr_y + qr_size + 20), url_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, accent_color)
+
+	# Star rating prompt
+	var rate_text = "Rate your experience:"
+	var rate_w = rate_text.length() * 6
+	draw_string(ThemeDB.fallback_font, Vector2((480 - rate_w) / 2, 265), rate_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, text_color)
+
+	# Draw 5 stars
+	var star_start_x = (480 - 5 * 20) / 2
+	for i in range(5):
+		var star_x = star_start_x + i * 20
+		draw_string(ThemeDB.fallback_font, Vector2(star_x, 285), "*", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, star_color)
+
+	# Press any button prompt (blinking)
+	var blink = fmod(Time.get_ticks_msec() / 500.0, 2.0) < 1.0
+	if blink:
+		var prompt = "Press any button to return to title"
+		var prompt_w = prompt.length() * 6
+		draw_string(ThemeDB.fallback_font, Vector2((480 - prompt_w) / 2, 310), prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.7, 0.7, content_alpha))
+
 func draw_shop_interior():
 	interior_sc.draw_shop_interior()
 
@@ -7409,42 +11946,105 @@ func draw_townhall_interior():
 func draw_bakery_interior():
 	interior_sc.draw_bakery_interior()
 
+func draw_map_view():
+	# Draw a nice parchment/map background
+	var bg_color = Color(0.85, 0.75, 0.6)  # Parchment color
+	draw_rect(Rect2(0, 0, 480, 320), bg_color)
+
+	# Draw the world map texture centered and scaled to fit
+	if tex_world_map:
+		var map_w = tex_world_map.get_width()
+		var map_h = tex_world_map.get_height()
+
+		# Scale map to fit screen with some padding (map already has title)
+		var scale_x = 470.0 / map_w
+		var scale_y = 310.0 / map_h
+		var scale = min(scale_x, scale_y)
+
+		var draw_w = map_w * scale
+		var draw_h = map_h * scale
+		var draw_x = (480 - draw_w) / 2
+		var draw_y = (320 - draw_h) / 2
+
+		# Draw map border/frame
+		var frame_padding = 4
+		draw_rect(Rect2(draw_x - frame_padding, draw_y - frame_padding, draw_w + frame_padding * 2, draw_h + frame_padding * 2), Color(0.4, 0.3, 0.2))
+		draw_rect(Rect2(draw_x - frame_padding + 2, draw_y - frame_padding + 2, draw_w + frame_padding * 2 - 4, draw_h + frame_padding * 2 - 4), Color(0.55, 0.4, 0.3))
+
+		# Draw the map
+		draw_texture_rect(tex_world_map, Rect2(draw_x, draw_y, draw_w, draw_h), false)
+
+		# Draw current location marker (pulsing)
+		var pulse = sin(continuous_timer * 4.0) * 0.3 + 0.7
+		var marker_color = Color(1.0, 0.3, 0.3, pulse)
+
+		# Calculate marker position based on current area
+		# Agricommune is roughly in center-bottom of the map
+		var marker_x = draw_x + draw_w * 0.5
+		var marker_y = draw_y + draw_h * 0.65
+
+		# Draw "You Are Here" marker
+		draw_circle(Vector2(marker_x, marker_y), 8, marker_color)
+		draw_circle(Vector2(marker_x, marker_y), 5, Color(1.0, 0.5, 0.5, pulse))
+		draw_circle(Vector2(marker_x, marker_y), 2, Color(1.0, 1.0, 1.0, pulse))
+
+		# Draw hint to close (on the side)
+		var hint_text = "[SELECT]"
+		if not is_using_controller():
+			hint_text = "[M]"
+		# Semi-transparent background for hint
+		draw_rect(Rect2(draw_x + draw_w - 55, draw_y + draw_h - 22, 50, 18), Color(0, 0, 0, 0.5))
+		draw_string(ThemeDB.fallback_font, Vector2(draw_x + draw_w - 52, draw_y + draw_h - 8), hint_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.9, 0.85, 0.7))
+	else:
+		# Fallback if map texture not loaded
+		draw_string(ThemeDB.fallback_font, Vector2(150, 160), "Map not available", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.3, 0.2, 0.1))
+
 func draw_robot_npc(x: float, y: float, type: String):
-	# Use custom sprites if available
-	if type == "baker" and tex_baker_robot:
-		var w = tex_baker_robot.get_width()
-		var h = tex_baker_robot.get_height()
-		var dest = Rect2(x - w/2, y - h + 8, w, h)
-		draw_texture_rect(tex_baker_robot, dest, false)
-		return
-	
-	if type == "shop" and tex_shop_robot:
-		var w = tex_shop_robot.get_width()
-		var h = tex_shop_robot.get_height()
-		var dest = Rect2(x - w/2, y - h + 8, w, h)
-		draw_texture_rect(tex_shop_robot, dest, false)
-		return
-	
-	# Fallback to inspector/monk sprite for robots
-	var tex = tex_ninja_inspector if type == "shop" else tex_ninja_monk
+	# Use proper animated NPC sprites from custom folders
+	# Scale to match player size in interiors (2x GAME_ZOOM)
+	var scale = GAME_ZOOM
+	var tex: Texture2D = null
+
+	if type == "baker":
+		tex = tex_baker_bot_south
+	elif type == "shop":
+		tex = tex_shopkeeper_bot_south
+
 	if tex:
-		var src = Rect2(0, 0, 16, 16)
-		var dest = Rect2(x - 16, y - 8, 32, 32)
-		draw_texture_rect_region(tex, dest, src)
+		# Idle bob animation
+		var idle_bob = sin(continuous_timer * 2.0 + x * 0.05) * 1.5
+		# Shadow (scaled)
+		draw_ellipse_shape(Vector2(x, y + 2), Vector2(10 * scale, 4 * scale), Color(0, 0, 0, 0.25))
+		# Draw sprite centered (scaled to match player)
+		var w = tex.get_width() * scale
+		var h = tex.get_height() * scale
+		var dest = Rect2(x - w / 2, y - h + 4 + idle_bob, w, h)
+		draw_texture_rect(tex, dest, false)
 
 func draw_mayor_npc(x: float, y: float):
-	# Use oldman sprite for mayor
-	if tex_ninja_oldman:
-		var src = Rect2(0, 0, 16, 16)
-		var dest = Rect2(x - 16, y - 16, 32, 32)
-		draw_texture_rect_region(tex_ninja_oldman, dest, src)
+	# Use proper Mayor Hiroshi sprite from custom folder
+	# Scale to match player size in interiors (2x GAME_ZOOM)
+	var scale = GAME_ZOOM
+	if tex_mayor_hiroshi_south:
+		# Idle bob animation
+		var idle_bob = sin(continuous_timer * 2.0 + x * 0.05) * 1.5
+		# Shadow (scaled)
+		draw_ellipse_shape(Vector2(x, y + 2), Vector2(10 * scale, 4 * scale), Color(0, 0, 0, 0.25))
+		# Draw sprite centered (scaled to match player)
+		var w = tex_mayor_hiroshi_south.get_width() * scale
+		var h = tex_mayor_hiroshi_south.get_height() * scale
+		var dest = Rect2(x - w / 2, y - h + 4 + idle_bob, w, h)
+		draw_texture_rect(tex_mayor_hiroshi_south, dest, false)
 
 func draw_interior_player(pos: Vector2):
+	# Interior player is drawn at 2x scale to match exploration mode (which uses GAME_ZOOM)
+	var scale = GAME_ZOOM  # 2x to match exploration
+
 	# Use new animation system if available
 	if player_anim_loaded:
 		var tex: Texture2D = null
 		var frame = player_frame % 6
-		
+
 		if is_walking:
 			match player_facing:
 				"down":
@@ -7465,20 +12065,51 @@ func draw_interior_player(pos: Vector2):
 				"up": tex = tex_player_idle_north
 				"left": tex = tex_player_idle_west
 				"right": tex = tex_player_idle_east
-		
+
 		if not tex and tex_player_idle_south:
 			tex = tex_player_idle_south
-		
+
 		if tex:
-			var w = tex.get_width()
-			var h = tex.get_height()
+			var w = tex.get_width() * scale
+			var h = tex.get_height() * scale
 			var dest = Rect2(pos.x - w/2, pos.y - h + 4, w, h)
 			draw_texture_rect(tex, dest, false)
 			return
-	
+
 	# Fallback
 	if not tex_player:
 		return
 	var src = Rect2(0, 0, 48, 48)
-	var dest = Rect2(pos.x - 24, pos.y - 40, 48, 48)
+	var dest = Rect2(pos.x - 48, pos.y - 80, 96, 96)  # 2x scale for fallback
 	draw_texture_rect_region(tex_player, dest, src)
+
+func draw_interior_kaido(pos: Vector2):
+	# Interior Kaido is drawn at 2x scale to match exploration mode (which uses GAME_ZOOM)
+	var scale = GAME_ZOOM  # 2x to match exploration
+
+	# Idle animation - gentle floating/bobbing motion (vertical only)
+	var idle_float = sin(continuous_timer * 2.5) * 2.0
+
+	# Small shadow underneath (scaled)
+	draw_ellipse(Vector2(pos.x, pos.y + 2), Vector2(8 * scale, 3 * scale), Color(0, 0, 0, 0.25))
+
+	if tex_kaido:
+		var w = tex_kaido.get_width()
+		var h = tex_kaido.get_height()
+		# Scale down large sprites - use integer scale for clean pixels
+		var draw_w: int
+		var draw_h: int
+		if w > 48:
+			draw_w = int(w / 4)
+			draw_h = int(h / 4)
+		elif w > 32:
+			draw_w = int(w / 2)
+			draw_h = int(h / 2)
+		else:
+			draw_w = w
+			draw_h = h
+		# Apply 2x scale for interior
+		draw_w = int(draw_w * scale)
+		draw_h = int(draw_h * scale)
+		var dest = Rect2(pos.x - draw_w / 2, pos.y - draw_h + 6 + idle_float, draw_w, draw_h)
+		draw_texture_rect(tex_kaido, dest, false)

@@ -94,9 +94,15 @@ func handle_stampede_input(event):
 		start_stampede_attack()
 		return
 	
-	# Jump - Cross / Z or Space
+	# Jump - Cross / Z or Space / D-pad Up / Joystick Up
 	var jump_pressed = (event is InputEventKey and event.pressed and (event.keycode == KEY_Z or event.keycode == KEY_SPACE))
 	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_A:
+		jump_pressed = true
+	# D-pad up
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_DPAD_UP:
+		jump_pressed = true
+	# Joystick up (left stick Y axis negative = up)
+	if event is InputEventJoypadMotion and event.axis == JOY_AXIS_LEFT_Y and event.axis_value < -0.5:
 		jump_pressed = true
 	if jump_pressed and game.stampede_player_grounded:
 		start_stampede_jump()
@@ -206,11 +212,15 @@ func stampede_pulse_effect():
 
 func start_stampede_attack():
 	game.stampede_player_state = "attacking"
-	game.stampede_player_state_timer = 0.25
+	game.stampede_player_state_timer = 0.25  # Faster punch
+	game.stampede_attack_hit_done = false  # Reset hit flag - hit check happens when punch lands
 
+func check_stampede_attack_hit():
+	# Called when punch lands (mid-animation)
 	var attack_range = 60
 	var attack_dir = 1 if game.stampede_player_facing_right else -1
 	var attack_center = game.stampede_player_pos.x + attack_dir * 20
+	var hit_something = false
 
 	for animal in game.stampede_animals:
 		if animal.defeated:
@@ -218,12 +228,19 @@ func start_stampede_attack():
 		var dist = abs(attack_center - animal.pos.x)
 		if dist < attack_range:
 			hit_stampede_animal(animal)
+			hit_something = true
+
+	# Haptic feedback when punch lands
+	if hit_something:
+		Input.start_joy_vibration(0, 0.3, 0.25, 0.08)
+	else:
+		Input.start_joy_vibration(0, 0.1, 0.05, 0.03)  # Light feedback even on miss
 
 func start_stampede_jump():
 	game.stampede_player_state = "jumping"
 	game.stampede_player_grounded = false
 	game.stampede_player_jump_start_y = game.stampede_player_pos.y  # Store where we jumped from
-	game.stampede_player_y_vel = -280
+	game.stampede_player_y_vel = -360  # Jump height
 	# Jump push-off haptic (reduced)
 	Input.start_joy_vibration(0, 0.15, 0.1, 0.04)
 
@@ -271,11 +288,16 @@ func hit_stampede_animal(animal: Dictionary):
 		})
 
 func bounce_off_animal(animal: Dictionary):
-	# Player bounces up when landing on an animal - slight natural bounce
-	game.stampede_player_y_vel = -130  # Small bounce upward
+	# Get the animal's head height for proper positioning
+	var hitbox = get_animal_hitbox(animal)
+	var animal_top = game.stampede_ground_y - hitbox.height
+
+	# Player bounces up from the animal's head
+	game.stampede_player_y_vel = -260  # Bounce upward
+	game.stampede_player_pos.y = animal_top - 5  # Position feet just above animal head
 	game.stampede_player_state = "jumping"
 	game.stampede_player_grounded = false
-	game.stampede_bounce_cooldown = 0.15  # Brief cooldown to prevent double-bounce on same frame
+	game.stampede_bounce_cooldown = 0.2  # Cooldown to prevent double-bounce
 
 	# Damage the animal
 	var damage = 1
@@ -288,7 +310,7 @@ func bounce_off_animal(animal: Dictionary):
 	game.screen_shake = 1.5
 
 	game.stampede_hit_effects.append({
-		"pos": animal.pos + Vector2(0, -25),
+		"pos": animal.pos + Vector2(0, -hitbox.height - 5),
 		"text": "STOMP!",
 		"timer": 0.6,
 		"color": Color(0.9, 0.7, 0.3)
@@ -309,7 +331,7 @@ func bounce_off_animal(animal: Dictionary):
 			game.stampede_score += 30
 
 		game.stampede_hit_effects.append({
-			"pos": animal.pos + Vector2(0, -40),
+			"pos": animal.pos + Vector2(0, -hitbox.height - 15),
 			"text": ko_text,
 			"timer": 0.8,
 			"color": Color(0.3, 1.0, 0.5)
@@ -339,6 +361,10 @@ func process_stampede(delta):
 	# Update player state timer
 	if game.stampede_player_state_timer > 0:
 		game.stampede_player_state_timer -= delta
+		# Check for punch landing mid-animation (at 0.15 remaining = 0.10s into animation)
+		if game.stampede_player_state == "attacking" and game.stampede_player_state_timer <= 0.15 and not game.stampede_attack_hit_done:
+			check_stampede_attack_hit()
+			game.stampede_attack_hit_done = true
 		if game.stampede_player_state_timer <= 0:
 			if game.stampede_player_state != "jumping":
 				game.stampede_player_state = "idle"
@@ -349,7 +375,7 @@ func process_stampede(delta):
 
 	# Process jumping
 	if not game.stampede_player_grounded:
-		game.stampede_player_y_vel += 650 * delta  # Gravity
+		game.stampede_player_y_vel += 850 * delta  # Moderate gravity
 		game.stampede_player_pos.y += game.stampede_player_y_vel * delta
 
 		# Land at ground level
@@ -432,52 +458,92 @@ func process_stampede_movement(delta):
 	# Clamp position to arena bounds
 	game.stampede_player_pos.x = clamp(game.stampede_player_pos.x, game.stampede_arena_left, game.stampede_arena_right)
 
+func get_animal_hitbox(animal: Dictionary) -> Dictionary:
+	# Returns hitbox dimensions based on animal type
+	# width = horizontal collision width, height = how tall the animal is (for stomp detection)
+	match animal.type:
+		"chicken":
+			return {"width": 20, "height": 18}
+		"cow":
+			return {"width": 28, "height": 28}
+		"bull":
+			return {"width": 30, "height": 30}
+		"robot":
+			return {"width": 24, "height": 32}
+		"heavy_robot":
+			return {"width": 32, "height": 38}
+		_:
+			return {"width": 24, "height": 24}
+
 func update_stampede_animals(delta):
 	for animal in game.stampede_animals:
 		if animal.defeated:
 			continue
-		
+
 		# Update hit flash
 		if animal.hit_flash > 0:
 			animal.hit_flash -= delta
-		
+
 		# Move animal
 		animal.pos.x += animal.vel.x * delta
-		
+
 		# Remove if off screen
 		if animal.pos.x > 500 or animal.pos.x < -50:
 			animal.defeated = true
 			continue
-		
-		# Check collision with player
+
+		# Skip collision if dodging
 		if game.stampede_player_state == "dodging":
 			continue
 
-		# Check X distance for collision
-		var dist = abs(game.stampede_player_pos.x - animal.pos.x)
-		if dist < 35:
-			# Check if player is bouncing on top of animal (falling from above)
-			var player_falling = not game.stampede_player_grounded and game.stampede_player_y_vel > 0
-			var player_above = game.stampede_player_pos.y < game.stampede_ground_y - 5
+		# Get animal hitbox
+		var hitbox = get_animal_hitbox(animal)
+		var animal_half_width = hitbox.width / 2.0
+		var animal_top = game.stampede_ground_y - hitbox.height  # Y position of animal's head
 
-			# Allow bounce if cooldown expired (enables chaining on different animals)
-			if player_falling and player_above and game.stampede_bounce_cooldown <= 0:
-				bounce_off_animal(animal)
-				continue
+		# Player collision box (feet position)
+		var player_x = game.stampede_player_pos.x
+		var player_y = game.stampede_player_pos.y  # Player's feet Y position
+		var player_half_width = 12.0
 
-			# Skip regular collision if player is jumping high enough
-			if not game.stampede_player_grounded and game.stampede_player_pos.y < game.stampede_ground_y - 30:
-				continue
+		# Check horizontal overlap
+		var x_overlap = abs(player_x - animal.pos.x) < (player_half_width + animal_half_width)
 
-			# Player hit by animal
+		if not x_overlap:
+			continue
+
+		# Check for stomp - player must be:
+		# 1. In the air (not grounded)
+		# 2. Falling downward
+		# 3. Feet are at or just above the animal's head
+		# 4. Horizontally centered on the animal (tighter check for stomp)
+		var player_falling = not game.stampede_player_grounded and game.stampede_player_y_vel > 0
+		var stomp_x_range = abs(player_x - animal.pos.x) < animal_half_width  # Must be on top, not side
+		var feet_at_head = player_y >= animal_top - 8 and player_y <= animal_top + 12
+
+		if player_falling and stomp_x_range and feet_at_head and game.stampede_bounce_cooldown <= 0:
+			bounce_off_animal(animal)
+			continue
+
+		# If player is high enough in the air, skip ground collision
+		if not game.stampede_player_grounded and player_y < animal_top:
+			continue
+
+		# Ground collision - player gets hit if overlapping at ground level
+		# Only hurt if player is in FRONT of the animal (animals move left to right)
+		# If player is behind the animal (player_x < animal.pos.x - threshold), no damage
+		var behind_threshold = animal_half_width * 0.6  # Safe zone behind animal
+		var player_behind_animal = player_x < animal.pos.x - behind_threshold
+
+		if (game.stampede_player_grounded or player_y >= game.stampede_ground_y - 10) and not player_behind_animal:
+			# Player hit by animal from the front
 			game.stampede_player_hp -= 1
 			game.stampede_player_state = "hit"
 			game.stampede_player_state_timer = 0.4
 			game.screen_shake = 6.0
-			# Heavy damage haptic (reduced)
 			Input.start_joy_vibration(0, 0.5, 0.4, 0.15)
 
-			var knockback = 80 if animal.pos.x < game.stampede_player_pos.x else -80
+			var knockback = 80 if animal.pos.x < player_x else -80
 			game.stampede_player_pos.x += knockback
 			game.stampede_player_pos.x = clamp(game.stampede_player_pos.x, game.stampede_arena_left, game.stampede_arena_right)
 
@@ -494,74 +560,74 @@ func update_stampede_animals(delta):
 func spawn_stampede_animal():
 	var animal_type = "chicken"
 	var hp = 1
-	var speed = 100
-	
-	# Wave-based spawning
+	var speed = 200  # Base speed doubled
+
+	# Wave-based spawning (all speeds increased significantly)
 	var roll = randf()
 	if game.stampede_wave >= 6:
 		# Heavy robots appear
 		if roll < 0.15:
 			animal_type = "heavy_robot"
 			hp = 4
-			speed = 60
+			speed = 140  # Was 60
 		elif roll < 0.4:
 			animal_type = "robot"
 			hp = 2
-			speed = 80
+			speed = 180  # Was 80
 		elif roll < 0.6:
 			animal_type = "bull"
 			hp = 2
-			speed = 140
+			speed = 280  # Was 140
 		elif roll < 0.8:
 			animal_type = "cow"
 			hp = 2
-			speed = 90
+			speed = 200  # Was 90
 		else:
 			animal_type = "chicken"
 			hp = 1
-			speed = 120
+			speed = 260  # Was 120
 	elif game.stampede_wave >= 4:
 		# Robots start appearing
 		if roll < 0.25:
 			animal_type = "robot"
 			hp = 2
-			speed = 80
+			speed = 180  # Was 80
 		elif roll < 0.5:
 			animal_type = "bull"
 			hp = 2
-			speed = 140
+			speed = 280  # Was 140
 		elif roll < 0.75:
 			animal_type = "cow"
 			hp = 2
-			speed = 90
+			speed = 200  # Was 90
 		else:
 			animal_type = "chicken"
 			hp = 1
-			speed = 120
+			speed = 260  # Was 120
 	elif game.stampede_wave >= 2:
 		# Bulls and cows
 		if roll < 0.3:
 			animal_type = "bull"
 			hp = 2
-			speed = 140
+			speed = 280  # Was 140
 		elif roll < 0.6:
 			animal_type = "cow"
 			hp = 2
-			speed = 90
+			speed = 200  # Was 90
 		else:
 			animal_type = "chicken"
 			hp = 1
-			speed = 120
+			speed = 260  # Was 120
 	else:
 		# Wave 1: mostly chickens
 		if roll < 0.7:
 			animal_type = "chicken"
 			hp = 1
-			speed = 100
+			speed = 220  # Was 100
 		else:
 			animal_type = "cow"
 			hp = 2
-			speed = 80
+			speed = 180  # Was 80
 	
 	# Speed variation
 	speed *= randf_range(0.85, 1.15)

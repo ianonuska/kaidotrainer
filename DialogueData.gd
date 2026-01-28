@@ -64,6 +64,8 @@ func grandmother_stage_4_kid_arrives() -> Array:
 		{"speaker": "kid", "text": "Energy Nation patrol!"},
 		{"speaker": "kid", "text": "Coming up the road!"},
 		{"speaker": "kid", "text": "Five minutes out!"},
+		{"speaker": "kid", "text": "I have to warn the others!"},
+		{"speaker": "milo_leave", "text": ""},
 		{"speaker": "set_stage", "text": "5"},
 		{"speaker": "quest", "text": "Build Silent Alarm"},
 	]
@@ -78,7 +80,7 @@ func grandmother_stage_5() -> Array:
 
 func grandmother_stage_6_7() -> Array:
 	return [
-		{"speaker": "grandmother", "text": "Energy Nation scoundrels!"},
+		{"speaker": "grandmother", "text": "Be careful. Energy Nation robots attack on sight."},
 		{"speaker": "grandmother", "text": "That was a close one."},
 		{"speaker": "grandmother", "text": "There's still work to do on the farm."},
 		{"speaker": "grandmother", "text": "The irrigation system is broken."},

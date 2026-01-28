@@ -152,16 +152,49 @@ func draw_area_indicator():
 func draw_equipped_gadget_indicator():
 	if game.equipped_gadget == "":
 		return
-	
+
 	var gx = 10  # Left side
 	var gy = 36  # Below backpack
-	
+
 	# Pill-shaped slot (Minish Cap style)
 	canvas.draw_rect(Rect2(gx, gy, 30, 26), Color(0.05, 0.1, 0.12, 0.9))
 	canvas.draw_rect(Rect2(gx, gy, 30, 26), Color(0.2, 0.5, 0.55), false, 2)
-	
-	draw_gadget_mini_icon(game.equipped_gadget, gx + 5, gy + 4, Color(0.5, 0.95, 0.88))
-	
+
+	# Use actual texture sprites like the backpack
+	var tex: Texture2D = null
+	match game.equipped_gadget:
+		"led_lamp", "flashlight":
+			tex = game.tex_gadget_flashlight
+		"dimmer":
+			tex = game.tex_gadget_dimmer
+		"led_chain":
+			tex = game.tex_gadget_led_chain
+		"light_sensor":
+			tex = game.tex_gadget_light_sensor
+		"buzzer_alarm":
+			tex = game.tex_gadget_buzzer
+
+	if tex:
+		var tex_w = tex.get_width()
+		var tex_h = tex.get_height()
+		var slot_size = 20  # Available space in slot
+		var scale_factor = min(float(slot_size) / tex_w, float(slot_size) / tex_h)
+		var draw_w = tex_w * scale_factor
+		var draw_h = tex_h * scale_factor
+		var cx = gx + 15  # Center of slot
+		var cy = gy + 13
+		var dest = Rect2(cx - draw_w/2, cy - draw_h/2, draw_w, draw_h)
+		canvas.draw_texture_rect(tex, dest, false)
+	else:
+		# Fallback - draw a simple flashlight icon
+		var icon_color = Color(0.5, 0.95, 0.88)
+		if game.equipped_gadget == "led_lamp":
+			# Flashlight shape
+			canvas.draw_rect(Rect2(gx + 10, gy + 4, 10, 14), icon_color)
+			canvas.draw_rect(Rect2(gx + 8, gy + 14, 14, 6), icon_color)
+		else:
+			draw_gadget_mini_icon(game.equipped_gadget, gx + 5, gy + 4, icon_color)
+
 	# R1 label
 	canvas.draw_string(ThemeDB.fallback_font, Vector2(gx + 32, gy + 17), "R1", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.4, 0.65, 0.6))
 
@@ -282,27 +315,38 @@ func draw_detection_overlay():
 
 func draw_schematic_popup():
 	var alpha = 0.95
-	
+
+	# Dim background
 	canvas.draw_rect(Rect2(0, 0, 480, 320), Color(0, 0, 0, 0.7))
-	canvas.draw_rect(Rect2(40, 30, 400, 260), Color(0.95, 0.92, 0.85, alpha))
-	canvas.draw_rect(Rect2(40, 30, 400, 260), Color(0.3, 0.25, 0.2, alpha), false, 4)
-	
+
+	# Popup box - larger to fit schematic properly
+	var popup_x = 40
+	var popup_y = 15
+	var popup_w = 400
+	var popup_h = 290
+	canvas.draw_rect(Rect2(popup_x, popup_y, popup_w, popup_h), Color(0.12, 0.15, 0.18, alpha))
+	canvas.draw_rect(Rect2(popup_x, popup_y, popup_w, popup_h), Color(0.3, 0.75, 0.68, alpha), false, 3)
+
+	# Title at top
 	var data = game.gadget_data.get(game.current_schematic, {})
-	var title = "CIRCUIT: " + data.get("name", "").to_upper()
-	canvas.draw_string(ThemeDB.fallback_font, Vector2(60, 55), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.2, 0.15, 0.1))
-	canvas.draw_string(ThemeDB.fallback_font, Vector2(60, 75), data.get("circuit", ""), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.4, 0.35, 0.3))
-	
-	# Draw schematic image
-	game.draw_breadboard_schematic(65, 85, game.current_schematic)
-	
+	var title = data.get("name", "").to_upper() + " - " + data.get("circuit", "")
+	canvas.draw_string(ThemeDB.fallback_font, Vector2(popup_x + 15, popup_y + 22), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.5, 0.95, 0.88))
+
+	# Schematic image - centered in upper portion
+	var schematic_y = popup_y + 32
+	game.draw_breadboard_schematic(popup_x + 20, schematic_y, game.current_schematic)
+
+	# Components list - positioned below schematic area (schematic max height is 160)
 	var components = data.get("components", [])
-	canvas.draw_string(ThemeDB.fallback_font, Vector2(295, 95), "COMPONENTS:", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.3, 0.25, 0.2))
-	var cy = 112
+	var cy = popup_y + 200  # Fixed position well below schematic
+	canvas.draw_string(ThemeDB.fallback_font, Vector2(popup_x + 20, cy), "Components:", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.5, 0.95, 0.88))
+	cy += 16
 	for comp in components:
-		canvas.draw_string(ThemeDB.fallback_font, Vector2(300, cy), "- " + comp, HORIZONTAL_ALIGNMENT_LEFT, 130, 10, Color(0.4, 0.35, 0.3))
-		cy += 16
-	
-	canvas.draw_string(ThemeDB.fallback_font, Vector2(160, 270), "[X] Build this circuit", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.3, 0.6, 0.5))
+		canvas.draw_string(ThemeDB.fallback_font, Vector2(popup_x + 28, cy), "- " + comp, HORIZONTAL_ALIGNMENT_LEFT, 340, 10, Color(0.7, 0.7, 0.7))
+		cy += 13
+
+	# Bottom prompt - clear action
+	canvas.draw_string(ThemeDB.fallback_font, Vector2(popup_x + 130, popup_y + popup_h - 18), "[X] Close and Build", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.3, 0.7, 0.6))
 
 # ===========================================
 # COMPONENT POPUP
@@ -334,30 +378,40 @@ func draw_component_popup():
 
 func draw_backpack_popup():
 	var alpha = clamp(game.backpack_anim, 0.0, 1.0)
-	
+
 	canvas.draw_rect(Rect2(0, 0, 480, 320), Color(0, 0, 0, 0.7 * alpha))
-	
+
 	var popup_y = 20 + (1.0 - alpha) * 40
 	canvas.draw_rect(Rect2(60, popup_y, 360, 280), Color(0.08, 0.1, 0.12, alpha))
 	canvas.draw_rect(Rect2(60, popup_y, 360, 280), Color(0.3, 0.75, 0.68, alpha), false, 3)
-	
+
 	# Tabs
-	var tabs = ["GADGETS", "LOOT"]
+	var tabs = ["GADGETS", "LOOT", "MAP"]
 	for i in range(tabs.size()):
-		var tab_x = 80 + i * 100
+		var tab_x = 70 + i * 90
 		var is_selected = (game.backpack_tab == i)
 		var tab_color = Color(0.2, 0.5, 0.45, alpha) if is_selected else Color(0.15, 0.18, 0.2, alpha)
-		canvas.draw_rect(Rect2(tab_x, popup_y + 8, 80, 24), tab_color)
+		canvas.draw_rect(Rect2(tab_x, popup_y + 8, 75, 24), tab_color)
 		var text_color = Color(0.5, 0.95, 0.88, alpha) if is_selected else Color(0.4, 0.4, 0.4, alpha)
-		canvas.draw_string(ThemeDB.fallback_font, Vector2(tab_x + 10, popup_y + 25), tabs[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, text_color)
-	
+		canvas.draw_string(ThemeDB.fallback_font, Vector2(tab_x + 8, popup_y + 25), tabs[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, text_color)
+
 	# Content
 	if game.backpack_tab == 0:
 		game.draw_backpack_gadgets_tab(popup_y, alpha)
-	else:
+	elif game.backpack_tab == 1:
 		game.draw_backpack_loot_tab(popup_y, alpha)
-	
-	canvas.draw_string(ThemeDB.fallback_font, Vector2(180, popup_y + 260), "[L1/R1] Tab  [O] Close", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.4, 0.4, 0.4, alpha))
+	else:
+		game.draw_backpack_map_tab(popup_y, alpha)
+
+	# Show appropriate hint based on tab
+	var hint_text = "[L1/R1] Tab  [O] Close"
+	if game.backpack_tab == 0:  # Gadgets tab
+		hint_text = "[D-Pad] Move  [X] Equip  [O] Close"
+	elif game.backpack_tab == 1:  # Loot tab
+		hint_text = "[D-Pad] Move  [X] Select  [O] Close"
+	else:  # Map tab
+		hint_text = "[L1/R1] Tab  [O] Close"
+	canvas.draw_string(ThemeDB.fallback_font, Vector2(135, popup_y + 260), hint_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.4, 0.4, 0.4, alpha))
 
 # ===========================================
 # GADGET & LOOT ICONS
@@ -370,7 +424,7 @@ func draw_gadget_icon(sx: float, sy: float, size: float, gadget_id: String, alph
 	# Check for texture first
 	var tex: Texture2D = null
 	match gadget_id:
-		"led_lamp":
+		"led_lamp", "flashlight":
 			tex = game.tex_gadget_flashlight
 		"dimmer":
 			tex = game.tex_gadget_dimmer
@@ -380,7 +434,7 @@ func draw_gadget_icon(sx: float, sy: float, size: float, gadget_id: String, alph
 			tex = game.tex_gadget_light_sensor
 		"buzzer_alarm":
 			tex = game.tex_gadget_buzzer
-	
+
 	# If texture exists, draw it
 	if tex:
 		var tex_w = tex.get_width()
@@ -429,6 +483,15 @@ func draw_loot_icon(sx: float, sy: float, size: float, item: String, alpha: floa
 		"key":
 			canvas.draw_rect(Rect2(sx + 16, sy + 8, 12, 20), Color(color.r, color.g, color.b, alpha))
 			canvas.draw_circle(Vector2(cx, sy + 32), 8, Color(color.r, color.g, color.b, alpha))
+		"ticket":
+			# Ticket shape - rectangle with notched edges
+			canvas.draw_rect(Rect2(sx + 6, sy + 12, size - 12, size - 24), Color(color.r, color.g, color.b, alpha))
+			# Perforated edge indicators
+			for i in range(3):
+				canvas.draw_circle(Vector2(sx + 6, sy + 18 + i * 8), 2, Color(0.1, 0.1, 0.12, alpha))
+				canvas.draw_circle(Vector2(sx + size - 6, sy + 18 + i * 8), 2, Color(0.1, 0.1, 0.12, alpha))
+			# Boxing glove icon on ticket
+			canvas.draw_circle(Vector2(cx, cy), 6, Color(0.8, 0.25, 0.2, alpha))
 		_:
 			canvas.draw_circle(Vector2(cx, cy), size / 3, Color(color.r, color.g, color.b, alpha))
 
