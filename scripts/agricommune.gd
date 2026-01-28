@@ -11326,24 +11326,36 @@ func draw_schematic_popup():
 	ui_draw.draw_schematic_popup()
 
 func draw_build_screen_overlay():
-	"""Draw the BUILD_SCREEN overlay with schematic preview and button prompts."""
-	# Semi-transparent overlay panel at bottom of screen
-	var panel_h = 80
-	var panel_y = SCREEN_HEIGHT - panel_h
-	draw_rect(Rect2(0, panel_y, SCREEN_WIDTH, panel_h), Color(0.1, 0.1, 0.15, 0.9))
-	draw_rect(Rect2(0, panel_y, SCREEN_WIDTH, 2), Color(0.4, 0.6, 0.8))  # Top border
+	"""Draw the BUILD_SCREEN as a fullscreen view with schematic and dialogue box."""
+	var default_font = ThemeDB.fallback_font
 
-	# Small schematic preview on left
-	var preview_x = 10
-	var preview_y = panel_y + 8
-	var preview_w = 100
-	var preview_h = 60
+	# Full screen dark background
+	draw_rect(Rect2(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT), Color(0.08, 0.1, 0.14))
 
-	# Draw mini schematic background
-	draw_rect(Rect2(preview_x, preview_y, preview_w, preview_h), Color(0.95, 0.95, 0.92))
-	draw_rect(Rect2(preview_x, preview_y, preview_w, preview_h), Color(0.5, 0.5, 0.5), false, 1)
+	# Title at top
+	draw_string(default_font, Vector2(SCREEN_WIDTH / 2 - 50, 25), "BUILD MODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.5, 0.95, 0.88))
 
-	# Draw mini schematic (scaled down version)
+	# Circuit name below title
+	var circuit_name = ""
+	match current_schematic:
+		"led_lamp", "led_basic": circuit_name = "LED Lamp Circuit"
+		"buzzer_alarm", "buzzer_button": circuit_name = "Buzzer Alarm Circuit"
+		"dimmer": circuit_name = "Dimmer Circuit"
+		"light_sensor": circuit_name = "Light Sensor Circuit"
+		"led_chain", "series_leds": circuit_name = "LED Chain Circuit"
+	draw_string(default_font, Vector2(SCREEN_WIDTH / 2 - circuit_name.length() * 4, 45), circuit_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.8))
+
+	# Large schematic in center
+	var schem_w = 280
+	var schem_h = 140
+	var schem_x = (SCREEN_WIDTH - schem_w) / 2
+	var schem_y = 55
+
+	# Schematic background (paper look)
+	draw_rect(Rect2(schem_x - 4, schem_y - 4, schem_w + 8, schem_h + 8), Color(0.2, 0.25, 0.3))
+	draw_rect(Rect2(schem_x, schem_y, schem_w, schem_h), Color(0.95, 0.95, 0.92))
+
+	# Draw schematic texture
 	var tex: Texture2D = null
 	match current_schematic:
 		"led_lamp", "led_basic": tex = tex_schematic_led_basic
@@ -11353,60 +11365,74 @@ func draw_build_screen_overlay():
 		"led_chain", "series_leds": tex = tex_schematic_series_leds
 	if tex:
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-		draw_texture_rect(tex, Rect2(preview_x + 2, preview_y + 2, preview_w - 4, preview_h - 4), false)
+		draw_texture_rect(tex, Rect2(schem_x + 4, schem_y + 4, schem_w - 8, schem_h - 8), false)
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
-	# Status text in center
-	var status_x = preview_x + preview_w + 20
-	var status_y = panel_y + 15
+	# Dialogue box at bottom (same style as normal dialogue)
+	var box_y = 218
+	draw_rect(Rect2(10, box_y, 460, 92), Color(0.06, 0.08, 0.12, 0.95))
+	draw_rect(Rect2(10, box_y, 460, 92), Color(0.3, 0.75, 0.68), false, 3)
 
-	# Title
-	var default_font = ThemeDB.fallback_font
-	draw_string(default_font, Vector2(status_x, status_y), "BUILD MODE", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 1.0))
+	# Kaido portrait
+	draw_rect(Rect2(18, box_y + 8, 64, 64), Color(0.12, 0.18, 0.15))
+	draw_rect(Rect2(18, box_y + 8, 64, 64), Color(0.25, 0.55, 0.5), false, 2)
+	if tex_kaido_portrait:
+		draw_texture_rect(tex_kaido_portrait, Rect2(22, box_y + 12, 56, 56), false)
 
-	# Instructions
-	status_y += 20
-	if detection_connected:
-		draw_string(default_font, Vector2(status_x, status_y), "Build the circuit on your breadboard.", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.7, 0.8))
+	# Name plate
+	draw_rect(Rect2(90, box_y + 6, 50, 20), Color(0.12, 0.18, 0.15))
+	draw_string(default_font, Vector2(96, box_y + 21), "Kaido", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.5, 0.95, 0.88))
+
+	# Kaido's tip text based on state
+	var tip_text = ""
+	if detection_pending or build_check_cooldown > 0:
+		tip_text = "Scanning your circuit... hold still!"
+	elif detection_hint != "":
+		tip_text = detection_hint
+	elif build_attempt_count == 0:
+		# First time tips based on circuit
+		match current_schematic:
+			"led_lamp", "led_basic":
+				tip_text = "Connect the LED's long leg to power through the resistor. Short leg to ground!"
+			"buzzer_alarm", "buzzer_button":
+				tip_text = "Wire the button in series with the buzzer. Press to make noise!"
+			"dimmer":
+				tip_text = "The potentiometer controls how much current flows to the LED."
+			"light_sensor":
+				tip_text = "The photoresistor changes resistance based on light levels."
+			_:
+				tip_text = "Build the circuit as shown, then press Triangle to check it!"
 	else:
-		draw_string(default_font, Vector2(status_x, status_y), "(Demo mode - no camera detected)", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6, 0.6, 0.6))
+		tip_text = "Press Triangle when you're ready to check your circuit!"
 
-	# Attempt counter (if any attempts made)
-	if build_attempt_count > 0:
-		status_y += 16
-		var attempt_text = "Attempts: " + str(build_attempt_count)
-		draw_string(default_font, Vector2(status_x, status_y), attempt_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.8, 0.7, 0.5))
+	# Wrap and draw text
+	var lines = wrap_text(tip_text, 42)
+	var text_y = box_y + 45
+	for line in lines:
+		draw_string(default_font, Vector2(92, text_y), line, HORIZONTAL_ALIGNMENT_LEFT, 360, 14, Color.WHITE)
+		text_y += 16
 
-	# Button prompt on right side
-	var btn_x = SCREEN_WIDTH - 150
-	var btn_y = panel_y + 20
+	# Button prompt in bottom right of dialogue box
+	var btn_x = 380
+	var btn_y = box_y + 60
 
-	# Draw button icon (PlayStation Triangle or keyboard key)
-	if build_check_cooldown > 0:
-		# Cooldown active - show grayed out
-		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.3, 0.3, 0.35))
-		draw_string(default_font, Vector2(btn_x + 6, btn_y + 17), "Y", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.5))
-		draw_string(default_font, Vector2(btn_x + 32, btn_y + 17), "Checking...", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.5))
-	elif detection_pending:
-		# Detection in progress
-		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.3, 0.5, 0.6))
-		draw_string(default_font, Vector2(btn_x + 6, btn_y + 17), "Y", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.8, 0.8, 0.8))
-		draw_string(default_font, Vector2(btn_x + 32, btn_y + 17), "Scanning...", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.9, 1.0))
+	if build_check_cooldown > 0 or detection_pending:
+		# Scanning indicator
+		draw_string(default_font, Vector2(btn_x, btn_y + 12), "Scanning...", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6, 0.8, 1.0))
 	else:
-		# Ready to check
-		draw_rect(Rect2(btn_x, btn_y, 24, 24), Color(0.2, 0.5, 0.3))
-		# Triangle shape for PS controller
-		var tri_center = Vector2(btn_x + 12, btn_y + 14)
+		# Triangle button prompt
+		var tri_x = btn_x
+		var tri_y = btn_y + 6
 		draw_colored_polygon(PackedVector2Array([
-			Vector2(tri_center.x, tri_center.y - 8),
-			Vector2(tri_center.x - 7, tri_center.y + 5),
-			Vector2(tri_center.x + 7, tri_center.y + 5)
-		]), Color(0.7, 1.0, 0.7))
-		draw_string(default_font, Vector2(btn_x + 32, btn_y + 17), "Check Circuit", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 1.0, 0.9))
+			Vector2(tri_x + 8, tri_y),
+			Vector2(tri_x, tri_y + 12),
+			Vector2(tri_x + 16, tri_y + 12)
+		]), Color(0.4, 0.8, 0.5))
+		draw_string(default_font, Vector2(tri_x + 22, btn_y + 14), "Check", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.9, 0.7))
 
-	# Secondary button hints
-	btn_y += 30
-	draw_string(default_font, Vector2(btn_x, btn_y + 10), "(or press T on keyboard)", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5, 0.5, 0.6))
+	# Attempt counter if any
+	if build_attempt_count > 0:
+		draw_string(default_font, Vector2(schem_x, schem_y + schem_h + 10), "Attempts: " + str(build_attempt_count), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.8, 0.7, 0.5))
 
 func draw_breadboard_schematic(x: float, y: float, circuit: String):
 	var tex: Texture2D = null
